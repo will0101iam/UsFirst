@@ -14,6 +14,10 @@
 - 同源 Worker 图片识别 API，使用 OpenRouter Qwen3.7 Flash，字段证据校验、超时和限流。需要单独配置服务端密钥。
 - 正式主页没有演示身份、示例申请和重复导航。旧设计源码保留，但生产不注册设计演示路由。
 
+## 部署状态
+
+已发布到独立 Cloudflare Worker： https://usfirst.pardus-team-william.workers.dev 。本次 OpenRouter 凭据已配置为服务端 Secret，不在源码和构建产物中。前后端类型及构建通过；42项本地接口回归通过；新 Worker 识别入口已真实调用成功（约4.8秒，无价格毛衣照片金额保持空白）。真实两台 iPhone 端到端验收尚未完成。
+
 ## 本地运行
 
 ```sh

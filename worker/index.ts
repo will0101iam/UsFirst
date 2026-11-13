@@ -23,7 +23,7 @@ interface RequestRow {
 }
 const encoder = new TextEncoder();
 const cookieName = 'usfirst_session';
-const photoSchema = z.object({ name: z.string().max(255), dataUrl: z.string().max(1500000).regex(/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/) });
+const photoSchema = z.object({ name: z.string().max(255), dataUrl: z.string().max(900000).regex(/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/) });
 const photosSchema = z.array(photoSchema).max(3).superRefine((photos, ctx) => {
   for (const photo of photos) {
     try {

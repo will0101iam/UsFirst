@@ -41,8 +41,9 @@ export async function preparePhoto(file: File): Promise<IPicture> {
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
-    if (dataUrl.length > 1500000) throw new Error('照片压缩后仍然过大，请换一张截图或较小的照片。');
+    let dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+    if (dataUrl.length > 900000) dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+    if (dataUrl.length > 900000) throw new Error('照片压缩后仍然过大，请换一张截图或较小的照片。');
     return { name: file.name.slice(0, 255), dataUrl };
   } finally { URL.revokeObjectURL(url); }
 }

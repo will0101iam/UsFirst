@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { IPicture } from './oa-types';
 
-// The app does NOT supply a recognizer yet. Only a server may use provider credentials.
+// Shared result validation. Production uses the authenticated same-origin Worker recognizer.
 export type RecognitionState = 'idle' | 'reading' | 'ready' | 'failed' | 'unavailable';
 export type ImageRecognizer = (photos: readonly IPicture[], signal: AbortSignal) => Promise<unknown>;
 const titleSchema = z.string().trim().min(1).max(60).nullable();

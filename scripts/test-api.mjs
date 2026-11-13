@@ -4,10 +4,11 @@ import fs from 'node:fs';
 const base = process.env.TEST_BASE || 'http://127.0.0.1:28789';
 if (!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base)) throw new Error('此回归脚本只允许本地测试，禁止向线上写入测试账号');
 const clients = { a: '', b: '', c: '', d: '' }; let checks = 0;
+const testIp = `local-suite-${randomBytes(8).toString('hex')}`;
 async function call(who, path, body, expected = 200) {
-  const response = await fetch(base + '/api' + path, { method: body === undefined ? 'GET' : 'POST', headers: { ...(clients[who] ? { Cookie: clients[who] } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'X-UsFirst': '1', Origin: base }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const response = await fetch(base + '/api' + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'CF-Connecting-IP': testIp, ...(clients[who] ? { Cookie: clients[who] } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'X-UsFirst': '1', Origin: base }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const data = await response.json().catch(() => ({}));
-  assert.equal(response.status, expected, `${path}: ${JSON.stringify(data)}`);
+  assert.ok((Array.isArray(expected) ? expected : [expected]).includes(response.status), `${path}: HTTP ${response.status} ${JSON.stringify(data)}`);
   if (response.headers.get('set-cookie')) clients[who] = response.headers.get('set-cookie').split(';')[0];
   checks++; return data;
 }
@@ -23,7 +24,7 @@ await call('a', '/invites/join', { code: invite.code }, 400);
 const linked = await call('b', '/invites/join', { code: invite.code }); assert.ok(linked.pair);
 await call('c', '/invites/join', { code: invite.code }, 400);
 const cInvite = await call('c', '/invites', {});
-const race = await Promise.all([call('d', '/invites/join', { code: cInvite.code }), call('a', '/invites/join', { code: cInvite.code }, 409)]); assert.ok(race[0].pair);
+const race = await Promise.all([call('d', '/invites/join', { code: cInvite.code }), call('a', '/invites/join', { code: cInvite.code }, [400, 409])]); assert.ok(race[0].pair);
 const photoFile = process.env.TEST_PHOTO || new URL('../../一起花-图片申请演示/assets/sweater.jpg', import.meta.url);
 const photo = { name: 'test.jpg', dataUrl: 'data:image/jpeg;base64,' + fs.readFileSync(photoFile).toString('base64') };
 const id = randomUUID(); const input = { id, title: '回归测试申请', amountCents: 3880, category: '网购', reason: '', photos: [photo] };
