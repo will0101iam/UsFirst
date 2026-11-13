@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "一起花 · 两个人的消费审批",
+  "short_name": "一起花",
+  "description": "花钱前，先和对方说一声。前端原型，真实审批与同步待接入。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#551e42",
+  "theme_color": "#551e42",
+  "icons": [
+    { "src": "./app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,73 @@
+/* Four visual treatments, same C behavior. All colors scoped to the concept. */
+.focus-gallery .gallery-heading,.focus-gallery .gallery-tools,.focus-gallery .gallery-footer { max-width:1510px; }
+.concept-selector { max-width:1510px; margin:0 auto 29px; display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+.concept-selector button { min-height:44px; padding:0 15px; border:1px solid var(--border); border-radius:99px; display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted-foreground); background:var(--card); }
+.concept-selector button.active { background:var(--foreground); border-color:var(--foreground); color:var(--card); }
+.concept-selector i { height:11px; width:11px; border-radius:50%; }
+.focus-concepts-grid { max-width:1510px; margin:0 auto; display:grid; grid-template-columns:repeat(auto-fit,minmax(354px,1fr)); gap:35px 26px; justify-items:center; }
+.focus-concepts-grid.single-concept { grid-template-columns:1fr; }
+.focus-concept .option-heading>span { min-width:35px; font-size:11px; }
+.focus-concept .option-heading h2 { font-size:16px; }
+.focus-concept .option-description>p { min-height:65px; font-size:12px; }
+.focus-concept .demo-app { --d-bg:#1741e8; --d-surface:#1438c4; --d-text:#f4f7ff; --d-muted:#d0dbff; --d-line:#627eea; --d-accent:#cbef58; --d-soft:#284cdb; --d-on:#102966; --d-danger:#f8b8ab; --d-success:#d3f79b; --feature-bg:var(--d-surface); --feature-text:var(--d-text); --feature-muted:var(--d-muted); --feature-amount:var(--d-accent); }
+.focus-concept .demo-home-scroll { padding-left:23px; padding-right:23px; }
+.focus-concept .focus-head { font-size:12px; margin-bottom:18px; }
+.focus-concept .focus-head p { font-size:11px; }
+.focus-concept .focus-view-switch { margin:6px 0 26px; }
+.focus-concept .focus-feature { background:var(--feature-bg); color:var(--feature-text); }
+.focus-concept .focus-feature h1 { font-size:31px; line-height:1.5; }
+.focus-concept .focus-category,.focus-concept .focus-feature>p { color:var(--feature-muted); }
+.focus-concept .focus-feature>p { font-size:16px; line-height:1.8; }
+.focus-concept .focus-amount>strong,.focus-concept .focus-amount>span { color:var(--feature-amount); }
+.focus-concept .focus-detail-link { color:var(--feature-text); }
+.focus-concept .focus-inline-actions { margin-top:20px; }
+.focus-concept .demo-primary,.focus-concept .demo-secondary,.focus-concept .demo-danger { min-height:54px; font-size:15px; }
+.focus-concept .demo-new { min-height:44px; }
+.focus-concept .focus-view-switch button { min-height:44px; }
+.focus-concept .demo-app .demo-danger { color:var(--d-bg); }
+.focus-concept .demo-notice>button,.focus-concept .demo-remove-photo { min-height:44px; min-width:44px; }
+.focus-concept .demo-local-note { font-size:12px; margin:19px 0; }
+.focus-concept .demo-bottom-nav { min-height:75px; }
+.focus-concept .demo-detail-money { color:var(--d-accent); }
+.focus-concept .demo-back { color:var(--d-text); }
+/* C1: electric action ticket; hard planes and a very clear lime CTA. */
+.concept-electric .demo-app .demo-brand { font-weight:750 !important; letter-spacing:-1px; }
+.concept-electric .focus-view-switch { border-radius:9px; border-color:var(--d-line); }
+.concept-electric .focus-view-switch button { border-radius:6px; }
+.concept-electric .focus-feature { border-radius:4px; border:1px solid var(--d-line); padding:25px; box-shadow:5px 5px 0 var(--d-accent); margin:0 5px 5px 0; }
+.concept-electric .focus-category { display:inline-block; border-bottom:1px solid var(--d-line); padding-bottom:9px; width:100%; letter-spacing:1px; font-size:11px; }
+.concept-electric .focus-amount>strong { font-family:'Avenir Next Condensed','SF Pro Display',-apple-system,sans-serif; font-size:72px; line-height:1.05; letter-spacing:-3px; font-weight:750; }
+.concept-electric .focus-feature h1 { font-weight:650; }
+.concept-electric .demo-primary,.concept-electric .demo-secondary { border-radius:8px; }
+.concept-electric .demo-new { border-radius:8px; }
+/* C2: bright red outside, calm paper inside. */
+.concept-vermilion .demo-app { --d-bg:#e23f32; --d-surface:#c63029; --d-text:#fffdf5; --d-muted:#fff0e9; --d-line:#f28276; --d-accent:#fffdf5; --d-soft:#bd3029; --d-on:#b1261e; --d-danger:#fff0c4; --d-success:#fcffbc; --feature-bg:#fffdf5; --feature-text:#25211e; --feature-muted:#72665e; --feature-amount:#25211e; }
+.concept-vermilion .focus-feature { border-radius:13px; padding:26px 25px; }
+.concept-vermilion .focus-feature h1 { font-family:'Songti SC','Noto Serif CJK SC',serif; font-weight:650; font-size:31px; }
+.concept-vermilion .focus-amount { border-top:1px dashed color-mix(in srgb,var(--feature-text) 25%,transparent); padding-top:23px; }
+.concept-vermilion .focus-amount>strong { font-family:'SF Mono',ui-monospace,monospace; font-size:55px; letter-spacing:-3px; }
+.concept-vermilion .focus-detail-link { font-size:13px; }
+.concept-vermilion .demo-detail { background:var(--feature-bg); color:var(--feature-text); --d-bg:var(--feature-bg); --d-surface:#f3f0e7; --d-text:var(--feature-text); --d-muted:var(--feature-muted); --d-line:#e2d9cd; --d-accent:#c43025; --d-on:#fffdf5; --d-danger:#b22925; --d-success:#366748; }
+.concept-vermilion .demo-form { --d-accent:#fffdf5; --d-on:#b1261e; }
+/* C3: raspberry field, pink object, acidic action; softer physical buttons. */
+.concept-berry .demo-app { --d-bg:#551e42; --d-surface:#682b51; --d-text:#fff2fa; --d-muted:#efc9dd; --d-line:#935574; --d-accent:#d6f56a; --d-soft:#693051; --d-on:#2c3317; --d-danger:#ffbba9; --d-success:#d6f56a; --feature-bg:#f5aed2; --feature-text:#46243a; --feature-muted:#74435d; --feature-amount:#46243a; }
+.concept-berry .demo-app .demo-brand { letter-spacing:-.5px; }
+.concept-berry .focus-feature { border-radius:32px; padding:28px 25px; box-shadow:0 6px 0 color-mix(in srgb,var(--feature-bg) 45%,var(--d-bg)); margin-bottom:6px; }
+.concept-berry .focus-feature h1 { font-size:31px; font-weight:650; }
+.concept-berry .focus-amount>strong { font-family:ui-rounded,'SF Pro Rounded','Avenir Next',sans-serif; font-size:67px; font-weight:650; letter-spacing:-3px; }
+.concept-berry .demo-primary { border-radius:18px; box-shadow:0 4px 0 color-mix(in srgb,var(--d-accent) 62%,var(--d-bg)); transition:transform .1s; }
+.concept-berry .demo-primary:active { transform:translateY(3px); box-shadow:0 1px 0 color-mix(in srgb,var(--d-accent) 62%,var(--d-bg)); }
+.concept-berry .demo-secondary { border-radius:18px; }
+.concept-berry .demo-new { background:var(--feature-bg); color:var(--feature-text); }
+/* C4: icy daytime focus; navy ink, crisp large typography. */
+.concept-glacier .demo-app { --d-bg:#c1eee6; --d-surface:#e5f8f3; --d-text:#123d48; --d-muted:#426a70; --d-line:#8ac7bd; --d-accent:#123d48; --d-soft:#aadbd3; --d-on:#effffc; --d-danger:#ab4035; --d-success:#245d47; --feature-bg:#ffffff; --feature-text:#123d48; --feature-muted:#52717a; --feature-amount:#123d48; }
+.concept-glacier .focus-feature { border-radius:26px; padding:27px 25px; box-shadow:0 9px 0 color-mix(in srgb,var(--d-text) 8%,var(--d-bg)); margin-bottom:9px; }
+.concept-glacier .focus-view-switch { border:0; background:var(--d-soft); }
+.concept-glacier .focus-view-switch button.selected { background:var(--d-text); color:var(--d-on); }
+.concept-glacier .focus-amount>strong { font-family:'Avenir Next','SF Pro Display',-apple-system,sans-serif; font-size:70px; font-weight:550; letter-spacing:-4px; line-height:1.05; }
+.concept-glacier .focus-feature h1 { font-size:30px; font-weight:550; }
+.concept-glacier .demo-secondary { background:transparent; border:1px solid var(--d-text) !important; }
+.concept-glacier .demo-new { background:var(--d-text); }
+.concept-glacier .demo-detail-money { font-family:'Avenir Next',-apple-system,sans-serif; font-weight:550; }
+@media(max-width:760px) { .focus-concepts-grid { grid-template-columns:1fr; gap:35px; } .focus-gallery { padding-left:18px; padding-right:18px; } .focus-gallery .gallery-heading h1 { font-size:26px; } .focus-gallery .gallery-heading p { font-size:13px; } .concept-selector { margin-bottom:24px; gap:6px; } .concept-selector button { padding:0 12px; } }
+@media(max-width:380px) { .focus-gallery .design-option { width:320px; min-width:320px; } .focus-gallery .gallery-phone-stage { width:320px; height:666px; } .focus-gallery .gallery-phone-scale { transform:scale(.76); } .focus-gallery .option-heading>button { width:32px; } .focus-gallery .gallery-scenarios button { padding:0 9px; } }
