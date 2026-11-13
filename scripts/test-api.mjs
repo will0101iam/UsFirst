@@ -25,7 +25,7 @@ const linked = await call('b', '/invites/join', { code: invite.code }); assert.o
 await call('c', '/invites/join', { code: invite.code }, 400);
 const cInvite = await call('c', '/invites', {});
 const race = await Promise.all([call('d', '/invites/join', { code: cInvite.code }), call('a', '/invites/join', { code: cInvite.code }, [400, 409])]); assert.ok(race[0].pair);
-const photoFile = process.env.TEST_PHOTO || new URL('../../一起花-图片申请演示/assets/sweater.jpg', import.meta.url);
+const photoFile = process.env.TEST_PHOTO || new URL('./fixtures/test-photo.jpg', import.meta.url);
 const photo = { name: 'test.jpg', dataUrl: 'data:image/jpeg;base64,' + fs.readFileSync(photoFile).toString('base64') };
 const id = randomUUID(); const input = { id, title: '回归测试申请', amountCents: 3880, category: '网购', reason: '', photos: [photo] };
 await call('a', '/requests', input, 201);

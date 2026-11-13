@@ -36,7 +36,7 @@ npm run test:api
 node scripts/test-recognition.mjs --self-test
 ```
 
-接口回归只允许 localhost，使用随机测试账号，不写入线上。默认照片路径来自本地独立演示；也可设 `TEST_PHOTO` 指向一张 JPEG。
+接口回归只允许 localhost，使用随机测试账号，不写入线上。默认使用仓库内的小尺寸测试照片；也可设 `TEST_PHOTO` 指向一张 JPEG。
 
 ## Cloudflare
 
