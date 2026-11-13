@@ -1,0 +1,45 @@
+.auth-panel,.pair-panel { margin-top:72px; }
+.auth-eyebrow { color:var(--primary); font-size:14px; letter-spacing:1px; }
+.auth-panel h1,.pair-panel h1 { font-size:34px; letter-spacing:-1px; font-weight:650; margin-top:12px; }
+.auth-subtitle,.pair-panel>p { font-size:14px; line-height:1.8; color:var(--muted-foreground); margin-top:12px; }
+.account-form { display:flex; flex-direction:column; gap:22px; margin-top:36px; }
+.account-form label { display:flex; flex-direction:column; gap:10px; font-size:13px; color:var(--muted-foreground); }
+.account-form input { width:100%; min-height:55px; border-radius:16px; border:1px solid var(--border); background:var(--secondary); color:var(--foreground); padding:12px 16px; font-size:16px; outline:none; }
+.account-form input:focus { border-color:var(--primary); }
+.account-form input::placeholder { color:var(--muted-foreground); opacity:.7; }
+.account-submit { width:100%; display:flex; align-items:center; justify-content:center; gap:10px; min-height:54px; }
+.account-switch { display:block; margin:25px auto 0; padding:8px 12px; min-height:44px; font-size:13px; color:var(--muted-foreground); }
+.account-error { color:var(--warning); font-size:13px; line-height:1.7; margin-top:8px; }
+.pair-panel { margin-top:54px; }
+.pair-symbol { background:var(--card); color:var(--card-foreground); display:grid; place-items:center; width:64px; height:64px; border-radius:23px; box-shadow:0 4px 0 color-mix(in srgb,var(--card) 45%,var(--background)); }
+.pair-invite { margin-top:30px; padding:22px; border:1px solid var(--border); background:var(--secondary); border-radius:26px; text-align:center; }
+.pair-invite small { color:var(--muted-foreground); font-size:12px; }
+.invite-code { display:block; margin:18px auto; font-family:ui-monospace,monospace; font-size:clamp(17px,5vw,25px); letter-spacing:2px; color:var(--primary); user-select:all; }
+.pair-copy { display:flex; align-items:center; justify-content:center; gap:8px; margin:auto; min-height:44px; }
+.pair-invite .account-switch { margin-top:7px; font-size:11px; }
+.pair-divider { display:flex; align-items:center; gap:15px; color:var(--muted-foreground); font-size:12px; margin-top:30px; }
+.pair-divider::before,.pair-divider::after { content:''; height:1px; background:var(--border); flex:1; }
+.pair-divider+.account-form { margin-top:20px; }
+.loading-state { min-height:60dvh; display:flex; flex-direction:column; gap:16px; align-items:center; justify-content:center; color:var(--muted-foreground); font-size:13px; }
+.settings-facts { display:flex; flex-direction:column; gap:20px; padding:20px 0 26px; border-bottom:1px solid var(--border); }
+.settings-facts>div { display:flex; justify-content:space-between; gap:20px; font-size:14px; }
+.settings-facts span { color:var(--muted-foreground); }
+.settings-facts strong { font-weight:500; overflow-wrap:anywhere; }
+.settings-install { margin-top:26px; }
+.settings-install h3 { font-size:15px; font-weight:550; }
+.settings-install p,.settings-footnote { font-size:12px; line-height:1.9; color:var(--muted-foreground); margin-top:10px; }
+.settings-footnote { margin-top:25px; }
+.connection-error { font-size:12px; color:var(--warning); width:100%; text-align:left; padding:14px 0; }
+.oa-page .workspace { margin-top:40px; }
+.oa-page .workspace-heading h1 { font-size:18px; font-weight:550; }
+.oa-page .request-list>.empty-state { padding-top:100px; }
+.us-photo-viewer[data-slot='dialog-content'] { width:calc(100vw - 16px); max-width:750px; height:92dvh; max-height:92dvh; padding:0; gap:0; overflow:hidden; display:flex; flex-direction:column; background:var(--background); border:1px solid var(--border); border-radius:22px; }
+.photo-view-toolbar { display:flex; align-items:center; gap:6px; padding:8px 10px; border-bottom:1px solid var(--border); color:var(--foreground); flex-shrink:0; }
+.photo-view-toolbar>span { margin-right:auto; padding-left:10px; font-size:12px; }
+.photo-view-toolbar button,.photo-view-pager button { width:44px; height:44px; display:grid; place-items:center; border-radius:50%; background:var(--secondary); }
+.photo-view-scroll { flex:1; min-height:0; overflow:auto; display:flex; align-items:center; justify-content:center; touch-action:pan-x pan-y pinch-zoom; }
+.photo-view-scroll img { max-width:100%; max-height:100%; object-fit:contain; cursor:zoom-in; }
+.photo-view-scroll.zoomed { display:block; }
+.photo-view-scroll.zoomed img { width:200%; max-width:none; max-height:none; cursor:zoom-out; }
+.photo-view-pager { display:flex; justify-content:center; gap:18px; padding:8px; }
+@media(max-width:600px) { .auth-panel { margin-top:56px; } .pair-panel { margin-top:38px; } .account-form { gap:20px; } }

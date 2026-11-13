@@ -6,7 +6,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import { globalIgnores } from 'eslint/config';
 
 export default tseslint.config(globalIgnores(['dist', '**/components/ui/**']), {
-  files: ['src/**/*.{ts,tsx}'],
+  files: ['src/**/*.{ts,tsx}', 'worker/**/*.ts'],
   extends: [
     js.configs.recommended,
     ...tseslint.configs.recommended,

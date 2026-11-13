@@ -20,8 +20,8 @@ const schema = z.object({
   category: z.enum(['网购', '外卖', '其他', '']).superRefine((value, context) => { if (value === '') context.addIssue({ code: 'custom', message: '请选择消费类型' }); }), reason: z.string().trim().max(300, '最多 300 个字'),
 });
 type FormValues = z.infer<typeof schema>;
-interface RequestFormProps { open: boolean; person: Person; onClose(): void; onCreate(input: IRequestInput): Promise<void>; recognize?: ImageRecognizer }
-export default function RequestForm({ open, person, onClose, onCreate, recognize }: RequestFormProps) {
+interface RequestFormProps { open: boolean; person: Person; onClose(): void; onCreate(input: IRequestInput): Promise<void>; recognize?: ImageRecognizer; partnerName?: string }
+export default function RequestForm({ open, person, onClose, onCreate, recognize, partnerName }: RequestFormProps) {
   const [stage, setStage] = useState<'entry' | 'confirm'>('entry');
   const [photos, setPhotos] = useState<IPicture[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -39,7 +39,7 @@ export default function RequestForm({ open, person, onClose, onCreate, recognize
   useEffect(() => () => controller.current?.abort(), []);
   async function readPhotos(next: IPicture[]) {
     if (!recognize) {
-      setRecognition('unavailable'); setRecognitionNote('图片已添加。自动识别未接入，请补充名称和金额；图片没有发送到外部服务。'); return;
+      setRecognition('unavailable'); setRecognitionNote('自动识别尚未配置，请手动填写名称和金额。'); return;
     }
     controller.current?.abort();
     const abort = new AbortController(); controller.current = abort;
@@ -88,16 +88,15 @@ export default function RequestForm({ open, person, onClose, onCreate, recognize
   }
   function close() { if (!busy) onClose(); }
   function cancelReading() { controller.current?.abort(); setRecognition('failed'); setRecognitionNote('已停止识别，可手动填写。'); }
-  return <AppSheet open={open} onClose={close} busy={busy} title={stage === 'entry' ? '这次想买什么？' : '确认这笔申请'} description={stage === 'entry' ? '拍一张或选张截图，再交给对方。' : `核对后交给${people[otherPerson(person)]}，同意后再购买。`} footer={stage === 'confirm' ? <>
+  return <AppSheet open={open} onClose={close} busy={busy} title={stage === 'entry' ? '这次想买什么？' : '确认这笔申请'} description={stage === 'entry' ? '拍一张或选张截图，再交给对方。' : `核对后交给${partnerName || people[otherPerson(person)]}审批。`} footer={stage === 'confirm' ? <>
     <Button type="submit" form="purchase-form" className="primary-action press-button" disabled={busy}>{isSubmitting ? <LoaderCircle size={18} className="animate-spin"/> : null}交给对方审批<ArrowRight size={18}/></Button>
-    <p className="action-caption">仅保存到本浏览器 · 关闭保留未提交内容</p>
   </> : undefined}>
     <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => void addPhotos(e.target.files)}/>
     <input ref={gallery} type="file" accept="image/*" multiple className="hidden" onChange={e => void addPhotos(e.target.files)}/>
     {stage === 'entry' ? <div className="capture-entry"><div className="capture-options"><button onClick={() => camera.current?.click()} disabled={busy}><Camera size={28} strokeWidth={1.6}/><strong>拍照</strong><span>拍下想买的东西</span></button><button onClick={() => gallery.current?.click()} disabled={busy}><ImagePlus size={28} strokeWidth={1.6}/><strong>上传图片</strong><span>商品、购物车或订单截图</span></button></div>
       {processing && <p className="capture-loading" role="status"><LoaderCircle size={17} className="animate-spin"/>正在处理照片…</p>}
       <button className="capture-manual" onClick={() => setStage('confirm')} disabled={busy}>手动填写<ArrowRight size={16}/></button>
-      <p className="capture-privacy">这一版仅在本地处理照片，LLM 尚未接入。正式识别前会告知图片发送给哪个服务。</p>
+      {recognize && <p className="capture-privacy">选择图片会发送给 OpenRouter · Qwen3.7 Flash 识别，核对后再提交。</p>}
     </div> : <form id="purchase-form" onSubmit={handleSubmit(submit)} noValidate className="minimal-form">
       <button type="button" className="capture-back" onClick={() => setStage('entry')} disabled={busy}><ArrowLeft size={15}/>返回图片选择</button>
       {photos.length > 0 && <section className="photo-field"><div className="field-heading"><span>申请图片</span><small>{photos.length} / 3</small></div><div className="photo-grid">{photos.map((photo, index) => <div key={`${photo.name}-${index}`} className="relative"><Image src={photo.dataUrl} alt={`申请照片 ${index + 1}`} className="photo-thumb"/><button type="button" className="remove-photo" aria-label={`删除照片 ${index + 1}`} disabled={busy} onClick={() => { setPhotos(previous => previous.filter((_, i) => i !== index)); setRecognition('idle'); setRecognitionNote('图片已移除，请重新核对名称和金额。'); }}><span><X size={13}/></span></button></div>)}</div>

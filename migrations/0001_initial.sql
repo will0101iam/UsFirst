@@ -1,0 +1,14 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, salt TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
+CREATE INDEX sessions_expiry ON sessions(expires_at);
+CREATE TABLE pairs (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
+CREATE TABLE members (user_id TEXT PRIMARY KEY REFERENCES users(id), pair_id TEXT NOT NULL REFERENCES pairs(id));
+CREATE INDEX members_pair ON members(pair_id);
+CREATE TRIGGER max_two_members BEFORE INSERT ON members WHEN (SELECT count(*) FROM members WHERE pair_id=NEW.pair_id)>=2 BEGIN SELECT RAISE(ABORT,'pair_full'); END;
+CREATE TABLE invites (code_hash TEXT PRIMARY KEY, owner_id TEXT NOT NULL UNIQUE REFERENCES users(id), expires_at INTEGER NOT NULL);
+CREATE TABLE requests (id TEXT PRIMARY KEY, pair_id TEXT NOT NULL REFERENCES pairs(id), applicant_id TEXT NOT NULL REFERENCES users(id), title TEXT NOT NULL, amount_cents INTEGER NOT NULL CHECK(amount_cents>0 AND amount_cents<=99999999), category TEXT NOT NULL CHECK(category IN ('网购','外卖','其他')), reason TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','purchased','cancelled')), created_at INTEGER NOT NULL, decided_at INTEGER, decision_note TEXT, purchased_at INTEGER, payload_hash TEXT NOT NULL);
+CREATE INDEX requests_pair_time ON requests(pair_id, created_at DESC);
+CREATE TABLE photos (id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES requests(id) ON DELETE CASCADE, name TEXT NOT NULL, data TEXT NOT NULL);
+CREATE INDEX photos_request ON photos(request_id);
+CREATE TABLE rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL);

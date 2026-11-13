@@ -1,67 +1,61 @@
 # UsFirst · 一起花
 
-两个人的极简消费审批网页：申请一笔 → 对方决定 → 同意后购买。
+两个人的极简消费审批：注册 → 邀请码连接 → 发起申请 → 对方审批 → 获批后标记购买。
 
-## 当前状态
+## 已实现
 
-这是 **C3 前端原型和图片识别接入准备代码**，不是已完成的 Cloudflare 全栈产品。
-
-已实现：
-- 莓粉 × 青柠 UI、单笔聚焦和实体按压按钮。
-- 图片优先申请抽屉：拍照／上传 → 确认名称、金额、类别 → 提交。
-- 当前浏览器内的申请、批准、拒绝、撤回和已购买记录。
-- 主屏幕 manifest 和 Apple 元信息。
-- Qwen3.7 Flash 的短提示词、字段校验和命令行真实识别测试工具。
-
-尚未实现：
-- 两个固定账号的真实登录、服务端权限、双手机同步。
-- 私有云照片存储。
-- 申请页中的真实 LLM 调用：主页面没有注入 recognizer。
-- Cloudflare 专用构建、Worker 后端、绑定和部署。
-
-**演示身份切换不是登录，数据只存在当前浏览器。** 网页不会拦截购物平台付款或代下单。
+- 注册、登录与退出；账号名、昵称、密码。密码加盐 PBKDF2，HttpOnly 会话 Cookie。
+- 一次性 24 小时邀请码，每个账号只能连接一位伙伴；并发连接在 D1 事务内处理。
+- 申请、同意、拒绝、撤回和购买标记。服务端校验双人隔离、角色权限及原状态。
+- 名称、人民币整数分金额、网购／外卖／其他、选填理由和最多三张照片。
+- 照片经客户端压缩后存入私有 D1；读取需登录且为同一对成员，无公开照片地址。
+- 图片直开、放大；主页拒绝只进入一次简短确认，不再绕申请详情。
+- C3 莓粉 × 青柠、实底按压按钮、主屏幕 manifest 与 iPhone safe-area。
+- 同源 Worker 图片识别 API，使用 OpenRouter Qwen3.7 Flash，字段证据校验、超时和限流。需要单独配置服务端密钥。
+- 正式主页没有演示身份、示例申请和重复导航。旧设计源码保留，但生产不注册设计演示路由。
 
 ## 本地运行
 
-```bash
+```sh
 npm ci
-npm run dev -- --host 127.0.0.1 --port 28371
+npm run build
+npm run db:local
+npm run dev:api
 ```
 
-打开终端输出的本地地址。这不是 iPhone 可访问的正式 HTTPS 地址。
+使用 Wrangler 终端返回地址（本项目端口 28789）。前后端同源，避免开发代理 Origin 差异。
 
-```bash
+```sh
 npm run lint
+npm run typecheck:worker
+npm run test:api
 node scripts/test-recognition.mjs --self-test
 ```
 
-## 图片识别
+接口回归只允许 localhost，使用随机测试账号，不写入线上。默认照片路径来自本地独立演示；也可设 `TEST_PHOTO` 指向一张 JPEG。
 
-默认模型为 `qwen/qwen3.7-flash`。
+## Cloudflare
 
-- `src/lib/recognition-config.ts`：模型、短提示词和参数。
-- `src/lib/image-recognition-contract.ts`：字段级校验；未知、无证据或不一致的金额清空。
-- `scripts/test-recognition.mjs`：命令行测试，支持 1–3 张 JPEG／PNG／WebP。
-- `src/lib/backend-contract.ts`：尚未接通的后端接口契约。
+`wrangler.jsonc` 绑定独立 `usfirst` Worker 和 `usfirst-db` 数据库，不复用其他应用。
 
-用安全方式设置当前终端的 `OPENROUTER_API_KEY` 环境变量后，可执行：
-
-```bash
-node scripts/test-recognition.mjs /absolute/path/to/image.png
+```sh
+npm run db:remote
+npm run deploy
 ```
 
-密钥不得提交到 GitHub，不能放进 HTML、`VITE_*` 或 public 目录。网页识别必须经有认证和限流的服务端代理。用户需核对结果后提交，不自动审批。
+图片识别密钥只通过以下交互式命令输入，不写入源码、VITE 变量或 public：
 
-## Cloudflare 部署前的必要迁移
+```sh
+npx wrangler secret put OPENROUTER_API_KEY
+```
 
-当前 `npm run build` 将产物拆成 `dist/output` 与 `dist/output_resource`，不是 CF 单目录构建，不可只上传其中一层。
+此前在聊天中出现的密钥应撤销更换。配置后页面会读取服务可用状态，选择照片经 Worker 发给模型；结果由本人核对，不自动提交或审批。
 
-部署前需完成统一前端输出与 SPA/API 路由、固定账号会话与审批权限、D1 共享申请、R2 私有图片、Worker Secrets 及真实识别 API，并在两台 iPhone 上验收。
+## 实际边界
 
-当前没有 Wrangler 配置或正式线上地址。仓库是开发起点，不是完整产品已上线的证明。
-
-## 设计与本地资料
-
-C3 为本项目选定方向。部分移动端操作范式参考 https://github.com/will0101iam/moji-journal 。设计比较页位于 `/designs` 与 `/designs/focus`，是开发演示而非正式产品入口。
-
-备份、参考原件、密钥和个人测试资料不随仓库上传。独立图片交互 HTML 示例和开发交接留在本地项目总目录；独立示例的图片直开和简短拒绝流程尚未同步到主工程。
+- 登录账号为自选用户名，不是邮箱；目前无邮箱验证、密码找回、解除连接、账号删除或推送通知。
+- 前台约 8 秒更新，切回页面也更新；没有后台推送或离线审批。
+- 当前最多返回最近 300 笔申请；照片适合本双人轻量使用，大规模使用应迁移专用私有对象存储和分页。
+- 邀请码请私下传给对方，持有邀请码的已注册用户可以连接。
+- 网页只记录审批与购买状态，不能拦截淘宝或其他平台实际付款。
+- 尚未完成真实两台 iPhone 的相机、主屏幕安装和长时间会话验收。
