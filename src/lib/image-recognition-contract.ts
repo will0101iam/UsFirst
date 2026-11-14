@@ -9,6 +9,33 @@ const amountSchema = z.number().int().positive().max(99999999).nullable();
 const categorySchema = z.enum(['网购', '外卖', '其他']).nullable();
 const sourceSchema = z.enum(['payable', 'listed', 'unknown']);
 const evidenceSchema = z.string().trim().min(1).max(80).nullable();
+const candidateSchema = z.object({
+  amountCents: z.number().int().positive().max(99999999),
+  currency: z.literal('CNY'),
+  kind: z.enum(['payable', 'listed', 'discounted', 'range', 'starting']),
+  amountEvidence: z.string().trim().min(1).max(80),
+});
+function quotedCents(evidence: string): number[] {
+  return Array.from(evidence.match(/(?<![\d.,])\d+(?:,\d{3})*(?:\.\d{1,2})?(?![\d.,])/g) || []).map(value => {
+    const [yuan, decimal = ''] = value.replaceAll(',', '').split('.');
+    return Number(yuan) * 100 + Number(decimal.padEnd(2, '0'));
+  });
+}
+function minimumPurchasePrice(input: unknown) {
+  if (!Array.isArray(input) || input.length > 8) return null;
+  const valid = input.flatMap(value => {
+    const parsed = candidateSchema.safeParse(value);
+    if (!parsed.success) return [];
+    const price = parsed.data;
+    // Defense in depth; OCR/context classification is still probabilistic.
+    if (/(划线|原价|参考价|分期|每期|月供|首付|定金|订金|运费|配送费|优惠券|优惠额|减免|立减|满\s*\d.*减)/.test(price.amountEvidence)) return [];
+    const amounts = quotedCents(price.amountEvidence);
+    if (!amounts.includes(price.amountCents)) return [];
+    if (price.kind === 'range' && (amounts.length !== 2 || price.amountCents !== Math.min(...amounts))) return [];
+    return [price];
+  });
+  return valid.reduce<(typeof valid)[number] | null>((lowest, price) => !lowest || price.amountCents < lowest.amountCents ? price : lowest, null);
+}
 export interface ImageRecognitionResult {
   title: string | null;
   amountCents: number | null;
@@ -40,14 +67,18 @@ export function parseRecognitionResult(input: unknown): ImageRecognitionResult {
     amountEvidence: evidence.success ? evidence.data : null,
     currency: 'CNY', warnings,
   };
+  if (Object.hasOwn(raw, 'priceCandidates')) {
+    const lowest = minimumPurchasePrice(raw.priceCandidates);
+    result.amountCents = lowest?.amountCents ?? null;
+    result.amountSource = lowest ? lowest.kind === 'payable' ? 'payable' : 'listed' : 'unknown';
+    result.amountEvidence = lowest?.amountEvidence ?? null;
+    if (lowest) result.warnings.push('已取图片最低购买价，请核对规格和优惠条件。');
+  }
+  // Legacy fields remain accepted for already-normalized API responses in the client.
   // A quoted amount is required; it checks numeric consistency, NOT truthfulness of OCR.
   // Caller must still show the original image and require user confirmation.
-  const quotedAmounts: string[] = Array.from((result.amountEvidence || '').match(/(?<![\d.,])\d+(?:,\d{3})*(?:\.\d{1,2})?(?![\d.,])/g) || []);
-  const evidenceMatches = quotedAmounts.some(value => {
-    const [yuan, decimal = ''] = value.replaceAll(',', '').split('.');
-    return Number(yuan) * 100 + Number(decimal.padEnd(2, '0')) === result.amountCents;
-  });
-  if (raw.currency !== 'CNY' || result.amountSource === 'unknown' || !result.amountEvidence || !evidenceMatches) {
+  const evidenceMatches = quotedCents(result.amountEvidence || '').includes(result.amountCents ?? -1);
+  if ((!Object.hasOwn(raw, 'priceCandidates') && raw.currency !== 'CNY') || result.amountSource === 'unknown' || !result.amountEvidence || !evidenceMatches) {
     result.amountCents = null;
   }
   if (result.amountCents === null) {

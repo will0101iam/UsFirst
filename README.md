@@ -11,7 +11,8 @@
 - 照片经客户端压缩后存入私有 D1；读取需登录且为同一对成员，无公开照片地址。
 - 图片直开、放大；主页拒绝只进入一次简短确认，不再绕申请详情。
 - C3 莓粉 × 青柠、实底按压按钮、主屏幕 manifest 与 iPhone safe-area。
-- 同源 Worker 图片识别 API，使用 OpenRouter Qwen3.7 Flash，字段证据校验、超时和限流。需要单独配置服务端密钥。
+- 同源 Worker 图片识别 API，使用 OpenRouter Qwen3.7 Flash，字段证据校验、超时和限流。识别现价、规格价、明确券后价、实付／应付中的最低购买价，支持区间下限与起价，排除划线原价、优惠券金额、分期每期金额、运费和定金；无可信价格留空。最低价仍需核对规格、优惠条件及运费。需要单独配置服务端密钥。
+- 关闭未提交申请后丢弃本次填写、照片和识别状态；再次发起为全新申请。返回图片选择仍保留本次填写；旧异步照片处理和识别结果不会回填新表单。
 - 正式主页没有演示身份、示例申请和重复导航。旧设计源码保留，但生产不注册设计演示路由。
 
 ## 部署状态
@@ -34,6 +35,9 @@ npm run lint
 npm run typecheck:worker
 npm run test:api
 node scripts/test-recognition.mjs --self-test
+npm run test:minimum-price
+npm run test:request-form
+npm run test:recognition-errors
 ```
 
 接口回归只允许 localhost，使用随机测试账号，不写入线上。默认使用仓库内的小尺寸测试照片；也可设 `TEST_PHOTO` 指向一张 JPEG。

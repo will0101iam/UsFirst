@@ -52,7 +52,7 @@ try {
   await assert.rejects(client.recognizePhotos(photos, new AbortController().signal), error => error.code === 'recognition_network'); checks++;
   providerException = new DOMException('timeout', 'TimeoutError');
   await assert.rejects(client.recognizePhotos(photos, new AbortController().signal), error => error.code === 'recognition_timeout'); checks++;
-  providerException = null; providerStatus = 200; providerBody = { choices: [{ message: { content: JSON.stringify({ title: '毛衣', amountCents: null, category: null, currency: 'CNY', amountSource: 'unknown', amountEvidence: null, warnings: [] }) } }] };
+  providerException = null; providerStatus = 200; providerBody = { choices: [{ message: { content: JSON.stringify({ title: '毛衣', category: null, priceCandidates: [], warnings: [] }) } }] };
   const result = await client.recognizePhotos(photos, new AbortController().signal); assert.equal(result.title, '毛衣'); assert.equal(result.amountCents, null); checks++;
   env.OPENROUTER_API_KEY = undefined; const callsBefore = providerCalls;
   await assert.rejects(client.recognizePhotos(photos, new AbortController().signal), error => error.code === 'recognition_not_configured'); assert.equal(providerCalls, callsBefore); checks++;

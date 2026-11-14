@@ -22,7 +22,11 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 interface RequestFormProps { open: boolean; person: Person; onClose(): void; onCreate(input: IRequestInput): Promise<void>; recognize?: ImageRecognizer; partnerName?: string }
-export default function RequestForm({ open, person, onClose, onCreate, recognize, partnerName }: RequestFormProps) {
+// Each open is a fresh form session. Returning to image selection stays in this session.
+export default function RequestForm(props: RequestFormProps) {
+  return props.open ? <RequestFormSession {...props}/> : null;
+}
+function RequestFormSession({ open, person, onClose, onCreate, recognize, partnerName }: RequestFormProps) {
   const [stage, setStage] = useState<'entry' | 'confirm'>('entry');
   const [photos, setPhotos] = useState<IPicture[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -37,7 +41,8 @@ export default function RequestForm({ open, person, onClose, onCreate, recognize
   });
   const category = useWatch({ control, name: 'category' });
   const busy = processing || recognition === 'reading' || isSubmitting;
-  useEffect(() => () => controller.current?.abort(), []);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; controller.current?.abort(); }; }, []);
   async function readPhotos(next: IPicture[]) {
     if (!recognize) {
       setRecognition('unavailable'); setRecognitionNote('自动识别尚未配置，请手动填写名称和金额。'); return;
@@ -52,7 +57,7 @@ export default function RequestForm({ open, person, onClose, onCreate, recognize
     });
     try {
       const result = parseRecognitionResult(await Promise.race([recognize(next, abort.signal), cancelled]));
-      if (abort.signal.aborted) return;
+      if (abort.signal.aborted || !mounted.current) return;
       // Fill only empty fields: never overwrite user edits, invent a price or submit.
       if (!getValues('title').trim() && result.title) setValue('title', result.title, { shouldValidate: true });
       if (!getValues('amount') && result.amountCents !== null) setValue('amount', (result.amountCents / 100).toFixed(2), { shouldValidate: true });
@@ -74,11 +79,12 @@ export default function RequestForm({ open, person, onClose, onCreate, recognize
     setProcessing(true);
     try {
       const added = await Promise.all(Array.from(files).map(preparePhoto));
+      if (!mounted.current) return;
       const next = [...photos, ...added]; setPhotos(next); setStage('confirm');
       if (!getFieldState('category').isDirty) setValue('category', '');
       await readPhotos(next);
-    } catch (error) { toast.error(error instanceof Error ? error.message : '照片读取失败。'); }
-    finally { setProcessing(false); if (camera.current) camera.current.value = ''; if (gallery.current) gallery.current.value = ''; }
+    } catch (error) { if (mounted.current) toast.error(error instanceof Error ? error.message : '照片读取失败。'); }
+    finally { if (mounted.current) { setProcessing(false); if (camera.current) camera.current.value = ''; if (gallery.current) gallery.current.value = ''; } }
   }
   async function submit(values: FormValues) {
     if (!values.category) return;

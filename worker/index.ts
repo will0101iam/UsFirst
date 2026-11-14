@@ -234,7 +234,9 @@ async function api(request: Request, env: Env): Promise<Response> {
     }
     try {
       const output = await response.json() as { choices?: { message?: { content?: string } }[] };
-      return json(parseRecognitionResult(JSON.parse(output.choices?.[0]?.message?.content || '')));
+      const fields: unknown = JSON.parse(output.choices?.[0]?.message?.content || '');
+      if (!fields || typeof fields !== 'object' || !('priceCandidates' in fields) || !Array.isArray(fields.priceCandidates) || fields.priceCandidates.length > 8) throw new Error('Invalid price candidates');
+      return json(parseRecognitionResult(fields));
     } catch { throw new HttpError(502, '模型返回的内容不是有效申请字段，请重试或手动填写', 'recognition_invalid_result'); }
   }
   throw new HttpError(404, '接口不存在');
