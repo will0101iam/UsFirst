@@ -40,7 +40,7 @@ const createSchema = z.object({
   id: z.string().uuid(), title: z.string().trim().min(1).max(60), amountCents: z.number().int().min(1).max(99999999),
   category: z.enum(['网购', '外卖', '其他']), reason: z.string().trim().max(300), photos: photosSchema,
 });
-class HttpError extends Error { constructor(public status: number, message: string) { super(message); } }
+class HttpError extends Error { constructor(public status: number, message: string, public code?: string) { super(message); } }
 const random = (bytes = 32) => Array.from(crypto.getRandomValues(new Uint8Array(bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
 async function digest(value: string) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(value))), b => b.toString(16).padStart(2, '0')).join(''); }
 async function passwordHash(password: string, salt: string) {
@@ -202,19 +202,40 @@ async function api(request: Request, env: Env): Promise<Response> {
     return new Response(data, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
   }
   if (path === '/api/recognize' && method === 'POST') {
-    if (!env.OPENROUTER_API_KEY) throw new HttpError(503, '图片识别尚未配置，仍可手动填写');
+    if (!env.OPENROUTER_API_KEY) throw new HttpError(503, '图片识别尚未配置，仍可手动填写', 'recognition_not_configured');
     await rate(env, user.id, 'recognize-minute', 3, 60); await rate(env, user.id, 'recognize-day', 30, 86400);
     const input = z.object({ photos: photosSchema.min(1) }).parse(await readBody(request));
-    const response = await fetch(recognitionConfig.endpoint, {
+    let response: Response;
+    try {
+      response = await fetch(recognitionConfig.endpoint, {
       method: 'POST', headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json', 'X-Title': 'UsFirst' },
       body: JSON.stringify({ model: recognitionConfig.model, temperature: recognitionConfig.temperature, max_tokens: recognitionConfig.maxTokens, reasoning: { enabled: false }, response_format: { type: 'json_object' }, provider: { require_parameters: true, data_collection: 'deny' },
         messages: [{ role: 'system', content: recognitionPrompt }, { role: 'user', content: [{ type: 'text', text: '提取这笔消费，供本人确认后发起申请。' }, ...input.photos.map(photo => ({ type: 'image_url', image_url: { url: photo.dataUrl } }))] }] }),
       signal: AbortSignal.timeout(40000),
-    });
-    if (!response.ok) throw new HttpError(502, response.status === 402 ? '识别服务余额不足，请手动填写' : '识别服务暂不可用，请重试或手动填写');
-    const output = await response.json() as { choices?: { message?: { content?: string } }[] };
-    try { return json(parseRecognitionResult(JSON.parse(output.choices?.[0]?.message?.content || ''))); }
-    catch { throw new HttpError(502, '识别结果无效，请手动填写'); }
+      });
+    } catch (error) {
+      if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) throw new HttpError(504, '识别超时，请重试或手动填写', 'recognition_timeout');
+      throw new HttpError(502, '服务器连接识别服务失败，请稍后重试', 'recognition_network');
+    }
+    if (!response.ok) {
+      // Do not expose upstream bodies: they can contain private provider details or echoed input.
+      const errors: Record<number, [number, string, string]> = {
+        400: [502, '识别服务不接受本次图片或请求参数，请换图重试', 'recognition_bad_request'],
+        401: [502, '识别服务密钥无效或已撤销，需要更新服务端密钥', 'recognition_credentials'],
+        402: [502, '识别服务余额不足，请充值或手动填写', 'recognition_balance'],
+        403: [502, '识别服务拒绝了请求，请检查服务授权或图片限制', 'recognition_forbidden'],
+        404: [502, '当前模型没有满足参数和隐私要求的可用通道，请稍后重试', 'recognition_no_route'],
+        408: [504, '识别服务超时，请重试或手动填写', 'recognition_timeout'],
+        429: [429, '识别服务请求过于频繁，请稍后重试', 'recognition_rate_limited'],
+      };
+      const [status, message, code] = errors[response.status] || [502, '识别服务暂不可用，请稍后重试或手动填写', 'recognition_upstream_unavailable'];
+      await response.body?.cancel();
+      throw new HttpError(status, message, code);
+    }
+    try {
+      const output = await response.json() as { choices?: { message?: { content?: string } }[] };
+      return json(parseRecognitionResult(JSON.parse(output.choices?.[0]?.message?.content || '')));
+    } catch { throw new HttpError(502, '模型返回的内容不是有效申请字段，请重试或手动填写', 'recognition_invalid_result'); }
   }
   throw new HttpError(404, '接口不存在');
 }
@@ -228,7 +249,7 @@ export default {
       headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'");
       return new Response(response.body, { status: response.status, headers });
     } catch (error) {
-      if (error instanceof HttpError) return json({ error: error.message }, error.status);
+      if (error instanceof HttpError) return json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, error.status);
       if (error instanceof z.ZodError) return json({ error: '请检查填写内容、金额或图片格式' }, 400);
       if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) return json({ error: '识别超时，请重试或手动填写' }, 504);
       return json({ error: '服务暂时不可用，请稍后重试' }, 500);

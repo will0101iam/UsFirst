@@ -14,7 +14,8 @@
     "db:local": "wrangler d1 migrations apply DB --local",
     "db:remote": "wrangler d1 migrations apply DB --remote",
     "deploy": "npm run lint && npm run typecheck:worker && npm run build && wrangler deploy",
-    "test:api": "node scripts/test-api.mjs"
+    "test:api": "node scripts/test-api.mjs",
+    "test:recognition-errors": "node scripts/test-recognition-errors.mjs"
   },
   "dependencies": {
     "@formkit/auto-animate": "^0.9.0",

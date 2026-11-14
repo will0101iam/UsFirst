@@ -12,6 +12,7 @@ import type { IRequestInput, IPicture, Person } from '@/lib/oa-types';
 import { preparePhoto } from '@/lib/oa-storage';
 import { parseRecognitionResult } from '@/lib/image-recognition-contract';
 import { recognitionConfig } from '@/lib/recognition-config';
+import { ApiError } from '@/lib/api';
 import type { ImageRecognizer, RecognitionState } from '@/lib/image-recognition-contract';
 
 const schema = z.object({
@@ -58,9 +59,10 @@ export default function RequestForm({ open, person, onClose, onCreate, recognize
       if (!getFieldState('category').isDirty) setValue('category', result.category || '', { shouldValidate: true });
       setRecognition('ready');
       setRecognitionNote(['请核对名称和金额。', ...result.warnings].join(' '));
-    } catch {
+    } catch (error) {
       if (abort.signal.aborted && !timedOut) return;
-      setRecognition('failed'); setRecognitionNote(timedOut ? '识别超时，请重试或手动填写。' : '图片识别失败，请重试或手动填写。');
+      setRecognition('failed');
+      setRecognitionNote(timedOut ? '识别超时，请重试或手动填写。' : error instanceof ApiError ? error.message : error instanceof TypeError ? '网络连接失败，请检查网络后重试。' : '识别结果无法解析，请重试或手动填写。');
     } finally {
       window.clearTimeout(timeout);
       if (controller.current === abort) controller.current = null;
