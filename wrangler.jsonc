@@ -5,6 +5,7 @@
   "compatibility_date": "2026-11-13",
   "account_id": "152afe664d46fa3ee1ec7317fcfcd83d",
   "workers_dev": true,
+  "routes": [{ "pattern": "usfirst.sopia.work", "custom_domain": true }],
   "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
   "d1_databases": [{ "binding": "DB", "database_name": "usfirst-db", "database_id": "482bd58b-2c83-4829-b8ec-97ee38e799f9", "migrations_dir": "migrations" }],
   "observability": { "enabled": false },

@@ -16,7 +16,7 @@
 
 ## 部署状态
 
-已发布到独立 Cloudflare Worker： https://usfirst.pardus-team-william.workers.dev 。本次 OpenRouter 凭据已配置为服务端 Secret，不在源码和构建产物中。前后端类型及构建通过；42项本地接口回归通过；新 Worker 识别入口已真实调用成功（约4.8秒，无价格毛衣照片金额保持空白）。真实两台 iPhone 端到端验收尚未完成。
+主要访问入口： https://usfirst.sopia.work/ （自定义域名，连接现有 UsFirst Worker 与原数据库）。原默认入口 https://usfirst.pardus-team-william.workers.dev 继续保留。自定义域名已通过本机 Chrome 登录页面渲染验证；用户手机访问待确认。本次 OpenRouter 凭据已配置为服务端 Secret，不在源码和构建产物中。前后端类型及构建通过；42项本地接口回归通过；新 Worker 识别入口已真实调用成功（约4.8秒，无价格毛衣照片金额保持空白）。真实两台 iPhone 端到端验收尚未完成。
 
 ## 本地运行
 
