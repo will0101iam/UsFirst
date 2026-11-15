@@ -1,4 +1,5 @@
 import { shellPolicy } from './shell-policy';
+import { notifyUser, pushKeys, subscriptionSchema, validatePushKey } from './push';
 import { z } from 'zod';
 import { recognitionConfig, recognitionPrompt } from '../src/lib/recognition-config';
 import { parseRecognitionResult } from '../src/lib/image-recognition-contract';
@@ -13,6 +14,7 @@ interface Env {
   DB: { prepare(sql: string): Statement; batch(statements: Statement[]): Promise<{ meta: { changes: number } }[]> };
   ASSETS: { fetch(request: Request): Promise<Response> };
   OPENROUTER_API_KEY?: string;
+  WEB_PUSH_KEYS?: string;
 }
 interface User { id: string; username: string; display_name: string }
 interface Pair { id: string; partner_id: string; partner_name: string }
@@ -122,7 +124,9 @@ async function bootstrap(request: Request, env: Env) {
   response.headers.set('Server-Timing', `app;dur=${(performance.now() - started).toFixed(1)}`);
   return response;
 }
-async function api(request: Request, env: Env): Promise<Response> {
+interface Background { waitUntil(promise: Promise<unknown>): void }
+async function api(request: Request, env: Env, context?: Background): Promise<Response> {
+  const queuePush = (userId: string, id: string, kind: 'request' | 'approved' | 'rejected') => { if (context && pushKeys(env)) context.waitUntil(notifyUser(env, userId, id, kind).catch(() => {})); };
   const path = new URL(request.url).pathname; const method = request.method;
   if (!['GET', 'POST'].includes(method)) throw new HttpError(405, '不支持的操作');
   if (method === 'POST') {
@@ -159,6 +163,35 @@ async function api(request: Request, env: Env): Promise<Response> {
     return json({ ok: true }, 200, sessionCookie(request, '', 0));
   }
   if (method === 'POST') await rate(env, user.id, 'write', 40, 60);
+  if (path.startsWith('/api/push/')) {
+    const token = request.headers.get('Cookie')?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.slice(cookieName.length + 1) || '';
+    const sessionHash = await digest(token);
+    if (path === '/api/push/config' && method === 'GET') return json({ available: !!pushKeys(env), publicKey: pushKeys(env)?.publicKey || null });
+    if (path === '/api/push/status' && method === 'GET') {
+      const hash = new URL(request.url).searchParams.get('endpointHash');
+      const row = hash && /^[a-f0-9]{64}$/.test(hash)
+        ? await env.DB.prepare('SELECT 1 AS enabled FROM push_subscriptions WHERE user_id=? AND session_hash=? AND endpoint_hash=? LIMIT 1').bind(user.id, sessionHash, hash).first()
+        : await env.DB.prepare('SELECT 1 AS enabled FROM push_subscriptions WHERE user_id=? AND session_hash=? LIMIT 1').bind(user.id, sessionHash).first();
+      return json({ enabled: !!row });
+    }
+    if (path === '/api/push/unsubscribe' && method === 'POST') {
+      await env.DB.prepare('DELETE FROM push_subscriptions WHERE user_id=? AND session_hash=?').bind(user.id, sessionHash).run();
+      return json({ ok: true });
+    }
+    if (path === '/api/push/subscribe' && method === 'POST') {
+      if (!pushKeys(env)) throw new HttpError(503, '通知服务暂未配置');
+      const { subscription } = z.object({ subscription: subscriptionSchema }).parse(await readBody(request, 4096));
+      try { await validatePushKey(subscription.keys.p256dh); } catch { throw new HttpError(400, '通知订阅无效，请重新开启'); }
+      const endpointHash = await digest(subscription.endpoint);
+      const existing = await env.DB.prepare('SELECT user_id FROM push_subscriptions WHERE endpoint_hash=?').bind(endpointHash).first<{ user_id: string }>();
+      if (existing && existing.user_id !== user.id) throw new HttpError(409, '本设备仍绑定其他账号，请先关闭通知后重新开启');
+      // Atomic insert cap and ownership fence. Rebinding the same user's endpoint is idempotent.
+      const saved = await env.DB.prepare(`INSERT INTO push_subscriptions(endpoint_hash,user_id,session_hash,endpoint,p256dh,auth,created_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM sessions WHERE token_hash=? AND user_id=? AND expires_at>?) AND (EXISTS(SELECT 1 FROM push_subscriptions WHERE endpoint_hash=? AND user_id=?) OR (SELECT count(*) FROM push_subscriptions WHERE user_id=?)<5) ON CONFLICT(endpoint_hash) DO UPDATE SET session_hash=excluded.session_hash,p256dh=excluded.p256dh,auth=excluded.auth,created_at=excluded.created_at WHERE push_subscriptions.user_id=excluded.user_id`).bind(endpointHash, user.id, sessionHash, subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth, Date.now(), sessionHash, user.id, Date.now(), endpointHash, user.id, user.id).run();
+      if (!saved.meta.changes) throw new HttpError(409, '未能开启通知，请重新登录或减少已开启通知的设备');
+      return json({ ok: true });
+    }
+    throw new HttpError(404, '接口不存在');
+  }
   if (path === '/api/invites' && method === 'POST') {
     if (await pairFor(user, env)) throw new HttpError(409, '你们已经连接');
     await rate(env, user.id, 'invite-create', 10, 3600);
@@ -198,10 +231,18 @@ async function api(request: Request, env: Env): Promise<Response> {
     }
     const statements = [env.DB.prepare('INSERT OR IGNORE INTO requests(id,pair_id,applicant_id,title,amount_cents,category,reason,created_at,payload_hash) VALUES(?,?,?,?,?,?,?,?,?)').bind(input.id, pair.id, user.id, input.title, input.amountCents, input.category, input.reason, Date.now(), payloadHash)];
     input.photos.forEach((photo, index) => statements.push(env.DB.prepare('INSERT OR IGNORE INTO photos(id,request_id,name,data) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM requests WHERE id=? AND applicant_id=? AND payload_hash=?)').bind(`${input.id}-${index}`, input.id, photo.name, photo.dataUrl, input.id, user.id, payloadHash)));
-    await env.DB.batch(statements);
+    const committed = await env.DB.batch(statements);
     const saved = await env.DB.prepare('SELECT applicant_id,payload_hash FROM requests WHERE id=?').bind(input.id).first<{ applicant_id: string; payload_hash: string }>();
     if (!saved || saved.applicant_id !== user.id || saved.payload_hash !== payloadHash) throw new HttpError(409, '提交冲突，请重试');
+    if (committed[0].meta.changes) queuePush(pair.partner_id, input.id, 'request');
     return json({ ok: true, id: input.id }, 201);
+  }
+  const detailMatch = path.match(/^\/api\/requests\/([a-f0-9-]{36})$/);
+  if (detailMatch && method === 'GET') {
+    const row = await env.DB.prepare('SELECT * FROM requests WHERE id=? AND pair_id=?').bind(detailMatch[1], pair.id).first<RequestRow>();
+    if (!row) throw new HttpError(404, '申请不存在或无权查看');
+    const photos = await env.DB.prepare('SELECT id,name FROM photos WHERE request_id=? ORDER BY id').bind(row.id).all<{ id: string; name: string }>();
+    return json({ request: requestData(row, user, photos.results) });
   }
   const actionMatch = path.match(/^\/api\/requests\/([a-f0-9-]{36})\/status$/);
   if (actionMatch && method === 'POST') {
@@ -210,6 +251,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     const now = Date.now();
     const update = await env.DB.prepare(`UPDATE requests SET status=?, decided_at=CASE WHEN ?='purchased' THEN decided_at ELSE ? END, decision_note=CASE WHEN ?='purchased' THEN decision_note ELSE ? END, purchased_at=CASE WHEN ?='purchased' THEN ? ELSE purchased_at END WHERE id=? AND pair_id=? AND status=? AND applicant_id${deciding ? '<>' : '='}?`).bind(input.status, input.status, now, input.status, input.note, input.status, now, actionMatch[1], pair.id, from, user.id).run();
     if (!update.meta.changes) throw new HttpError(409, '申请状态已变化，或你无权执行这个操作');
+    if (deciding) queuePush(pair.partner_id, actionMatch[1], input.status as 'approved' | 'rejected');
     return json({ ok: true });
   }
   const photoMatch = path.match(/^\/api\/photos\/([a-f0-9-]{36}-[0-2])$/);
@@ -260,9 +302,9 @@ async function api(request: Request, env: Env): Promise<Response> {
   throw new HttpError(404, '接口不存在');
 }
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, context?: Background): Promise<Response> {
     try {
-      if (new URL(request.url).pathname.startsWith('/api/')) return await api(request, env);
+      if (new URL(request.url).pathname.startsWith('/api/')) return await api(request, env, context);
       const response = await env.ASSETS.fetch(request); const headers = new Headers(response.headers);
       const pathname = new URL(request.url).pathname;
       if (pathname === '/sw.js' || pathname === '/boot.js' || headers.get('Content-Type')?.includes('text/html')) headers.set('Cache-Control', 'no-cache, max-age=0, must-revalidate');

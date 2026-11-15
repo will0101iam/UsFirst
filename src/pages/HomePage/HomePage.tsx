@@ -67,6 +67,29 @@ export default function HomePage() {
     window.addEventListener('focus', resume); window.addEventListener('online', online); window.addEventListener('offline', pause); window.addEventListener('pageshow', resume); window.addEventListener('storage', storage); document.addEventListener('visibilitychange', visible);
     return () => { clearTimeout(initial); clearInterval(interval); window.removeEventListener('focus', resume); window.removeEventListener('online', online); window.removeEventListener('offline', pause); window.removeEventListener('pageshow', resume); window.removeEventListener('storage', storage); document.removeEventListener('visibilitychange', visible); };
   }, [refresh]);
+  const deepLinkRunning = useRef('');
+  const [deepLink, setDeepLink] = useState(() => typeof window.location?.hash === 'string' ? window.location.hash : '');
+  useEffect(() => {
+    const changed = () => setDeepLink(window.location.hash);
+    window.addEventListener('hashchange', changed);
+    return () => window.removeEventListener('hashchange', changed);
+  }, []);
+  const notificationAccount = session?.user?.username;
+  const notificationPaired = !!session?.pair;
+  useEffect(() => {
+    const id = deepLink.match(/^#request=([a-f0-9-]{36})$/)?.[1];
+    if (!id || !verified || !notificationAccount || !notificationPaired || deepLinkRunning.current === id) return;
+    const epoch = sessionEpoch.current; const generation = snapshotGeneration(); let active = true;
+    deepLinkRunning.current = id;
+    setSettingsOpen(false); setRejectId(null); setPhoto(null);
+    void api<{ request: IRequest }>(`/requests/${id}`).then(result => {
+      if (!active || epoch !== sessionEpoch.current || generation !== snapshotGeneration()) return;
+      setRequests(previous => [result.request, ...previous.filter(row => row.id !== id)]);
+      setView(result.request.applicant === 'me' ? 'mine' : 'inbox'); setFilter('all'); setSelectedId(id);
+      setDeepLink(''); window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }).catch(error => { if (active && epoch === sessionEpoch.current && generation === snapshotGeneration()) { toast.error(error instanceof Error ? error.message : '申请暂时无法打开'); setDeepLink(''); } }).finally(() => { if (deepLinkRunning.current === id) deepLinkRunning.current = ''; });
+    return () => { active = false; deepLinkRunning.current = ''; };
+  }, [deepLink, verified, notificationAccount, notificationPaired]);
   const writable = () => verifiedRef.current && verifiedGeneration.current === snapshotGeneration() && !document.hidden && (typeof navigator === 'undefined' || navigator.onLine !== false);
   const readOnly = !verified;
   async function create(input: IRequestInput) {
@@ -88,7 +111,9 @@ export default function HomePage() {
   }
   async function logout() {
     suppressRefresh.current = true; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot('logout'); verifiedRef.current = false; setVerified(false); setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); requestState.current = []; setSavedAt(0); setSettingsOpen(false); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); setLoading(false); draftId.current = crypto.randomUUID();
+    const cleanup = import('@/lib/push-notifications').then(module => module.stopDevicePush()).catch(() => { toast.error('本设备通知关闭未确认，可在系统设置中关闭一起花通知。'); });
     try { await api('/auth/logout', {}); } catch { toast.error('本机快照已清除，但服务器退出未确认，请联网后再退出。'); }
+    await cleanup;
   }
   function authenticated(next: SessionState) { suppressRefresh.current = false; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot(); verifiedRef.current = false; setVerified(false); draftId.current = crypto.randomUUID(); requestState.current = []; setRequests([]); setSavedAt(0); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); setSession(next); void refresh(); }
   const selected = requests.find(request => request.id === selectedId); const rejecting = requests.find(request => request.id === rejectId);
@@ -110,6 +135,6 @@ export default function HomePage() {
     {photo && <PhotoViewer photos={photo.photos} index={photo.index} onClose={() => setPhoto(null)}/>}
     </Suspense>
     </>}
-    <Suspense fallback={<p className="connection-error" role="status">正在打开…</p>}>{settingsOpen && session?.user && <SettingsSheet session={session} onClose={() => setSettingsOpen(false)} onLogout={logout}/>}</Suspense>
+    <Suspense fallback={<p className="connection-error" role="status">正在打开…</p>}>{settingsOpen && session?.user && <SettingsSheet session={session} readOnly={readOnly} canWrite={writable} onClose={() => setSettingsOpen(false)} onLogout={logout}/>}</Suspense>
   </main>;
 }

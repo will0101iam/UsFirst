@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import { readFile } from 'node:fs/promises';
+import { build } from 'esbuild';
+import { randomBytes } from 'node:crypto';
+const result=await build({entryPoints:['src/lib/push-notifications.ts'],bundle:true,write:false,format:'esm',platform:'browser',target:'es2023'});
+const mod=(await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64')));
+const calls=[]; let permission='granted', sub=null, networkFailure=false;
+const pub=randomBytes(65).toString('base64url');
+const registration={active:{state:'activated'},update:async()=>{},pushManager:{getSubscription:async()=>sub,subscribe:async options=>{calls.push(['subscribe',options]);sub={endpoint:'https://web.push.apple.com/test',toJSON:()=>({endpoint:'https://web.push.apple.com/test',keys:{}}),unsubscribe:async()=>{calls.push(['unsubscribe']);sub=null;return true}};return sub}},getNotifications:async()=>[{close:()=>calls.push(['close'])}]};
+globalThis.window={isSecureContext:true,Notification:null,PushManager:function(){}};
+globalThis.Notification=window.Notification={permission:'default',requestPermission:()=>{calls.push(['permission']);Notification.permission=permission;return Promise.resolve(permission)}};
+Object.defineProperty(globalThis,'navigator',{configurable:true,value:{serviceWorker:{getRegistration:async()=>registration,register:async()=>{calls.push(['register']);return registration},ready:Promise.resolve(registration)}}});
+const original=globalThis.fetch;
+globalThis.fetch=async(url,init)=>{calls.push(['fetch',url]);if(networkFailure&&url.endsWith('/subscribe'))throw new TypeError('network');return new Response(JSON.stringify(url.endsWith('/config')?{available:true,publicKey:pub}:url.includes('/status')?{enabled:true}:{ok:true}),{headers:{'Content-Type':'application/json'}})};
+try {
+ const work=mod.enablePush();assert.equal(calls[0][0],'permission','permission synchronously before config request');await work;assert.ok(calls.some(c=>c[1]==='/api/push/subscribe'));assert.equal((await mod.pushState()).enabled,true);
+ await mod.disablePush();assert.equal(sub,null);assert.ok(calls.findIndex(c=>c[1]==='/api/push/unsubscribe')<calls.findIndex(c=>c[0]==='unsubscribe'));
+ calls.length=0;permission='denied';await assert.rejects(mod.enablePush(),/未获得/);assert.equal(calls.length,1);
+ calls.length=0;permission='granted';let valid=true;Notification.requestPermission=()=>{calls.push(['permission']);valid=false;return Promise.resolve('granted')};await assert.rejects(mod.enablePush(()=>valid),/账号/);assert.equal(calls.length,1,'account change stops network subscription');
+ Notification.requestPermission=()=>Promise.resolve('granted');networkFailure=true;await assert.rejects(mod.enablePush(),/网络/);assert.ok(sub,'uncertain server POST preserves device subscription for status check');networkFailure=false;await mod.stopDevicePush();assert.equal(sub,null);
+ const events={},notifications=[],opened=[];const cacheCalls=[];
+ const script=await readFile('dist/sw.js','utf8');
+ vm.runInNewContext(script,{URL,Request,Response,Headers,AbortController,setTimeout,clearTimeout,caches:{open:async()=>{cacheCalls.push(1)}},self:{registration:{scope:'https://usfirst.example/',showNotification:async(title,options)=>notifications.push({title,options})},location:{origin:'https://usfirst.example'},clients:{matchAll:async()=>[],openWindow:async url=>opened.push(url)},addEventListener:(n,f)=>events[n]=f}});
+ const id='fa48d670-abcd-4ec2-82e9-b1a0b6f49d78';let pending;
+ events.push({data:{json:()=>({requestId:id,body:'恶意私密文案'})},waitUntil:p=>pending=p});await pending;assert.equal(notifications[0].options.body,'你的申请有了审批结果，点开查看。');assert.deepEqual(cacheCalls,[]);
+ events.notificationclick({notification:{data:{requestId:id},close(){}},waitUntil:p=>pending=p});await pending;assert.equal(opened[0],'https://usfirst.example/#request='+id);
+ events.notificationclick({notification:{data:{requestId:'https://evil.example'},close(){}},waitUntil:p=>pending=p});assert.equal(opened.length,1);
+ let focus=0,navigate='';events.push({data:{json:()=>({requestId:id,body:'收到一笔新申请，点开查看。'})},waitUntil:p=>pending=p});await pending;assert.equal(notifications[1].options.body,'收到一笔新申请，点开查看。');
+ console.log(JSON.stringify({ok:true,checks:12,scope:'real notification client and built SW; permission/subscribe and display/click platform adapters isolated',productionRequests:0}));
+}finally{globalThis.fetch=original;}

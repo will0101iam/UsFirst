@@ -51,6 +51,32 @@ self.addEventListener('activate', event => {
     await self.clients.claim();
   })());
 });
+// Only generic text is carried by a push; no request data or photos are cached here.
+self.addEventListener('push', event => {
+  event.waitUntil((async () => {
+    let data;
+    try { data = event.data?.json(); } catch { return; }
+    if (!data || !/^[a-f0-9-]{36}$/.test(data.requestId)) return;
+    await self.registration.showNotification('一起花', {
+      body: data.body === '收到一笔新申请，点开查看。' ? data.body : '你的申请有了审批结果，点开查看。',
+      icon: '/app-icon-192.png', badge: '/app-icon-192.png', tag: 'usfirst-' + data.requestId,
+      data: { requestId: data.requestId },
+    });
+  })());
+});
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const id = event.notification.data?.requestId;
+  if (!/^[a-f0-9-]{36}$/.test(id || '')) return;
+  const target = new URL('/#request=' + id, self.registration.scope).href;
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existing = clients.find(client => new URL(client.url).origin === self.location.origin && ['/', '/index.html'].includes(new URL(client.url).pathname));
+    if (existing) { await existing.navigate(target); await existing.focus(); }
+    else await self.clients.openWindow(target);
+  })());
+});
+
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);

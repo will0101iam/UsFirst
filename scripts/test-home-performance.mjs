@@ -70,5 +70,15 @@ try {
   await act(async () => tree.root.findByType('test-FocusRequest').props.onApprove());
   assert.ok(globalThis.__toasts.includes('已同意购买'));
   assert.equal(tree.root.findAllByType('test-FocusRequest').length, 0, '确认审批后即刻移出待办，不等刷新');
-  console.log(JSON.stringify({ ok: true, checks: 13, scope: 'real HomePage; controlled API result ordering, logout/account isolation, confirmed approval', networkCalls: 0 }));
+  await act(async()=>tree.unmount()); tree=null;
+  const linkId='fa48d670-abcd-4ec2-82e9-b1a0b6f49d78';let confirmBootstrap;let confirmDetail;let detailCalls=0;
+  window.location={hash:'#request='+linkId,pathname:'/',search:''};window.history={replaceState(){window.location.hash=''}};
+  globalThis.__homeAPI.getBootstrap=()=>new Promise(resolve=>confirmBootstrap=resolve);
+  globalThis.__homeAPI.api=()=>{detailCalls++;return new Promise(resolve=>confirmDetail=resolve)};
+  await act(async()=>{tree=TestRenderer.create(React.createElement(Home))});
+  await act(async()=>listeners.get('pageshow')());assert.equal(detailCalls,0,'通知不能在鉴权确认之前取详情');
+  await act(async()=>confirmBootstrap(initial));assert.equal(detailCalls,1);
+  await act(async()=>confirmDetail({request:{id:linkId,title:'通知打开的申请',applicant:'partner',status:'pending',amountCents:2900,category:'网购',reason:'',photos:[],createdAt:new Date().toISOString()}}));
+  assert.equal(tree.root.findByType('test-RequestDetail').props.request.id,linkId);assert.equal(window.location.hash,'');
+  console.log(JSON.stringify({ ok: true, checks: 17, scope: 'real HomePage; controlled API result ordering, notification after verification, logout/account isolation, confirmed approval', networkCalls: 0 }));
 } finally { if (tree) await act(async () => tree.unmount()); }
