@@ -1,13 +1,27 @@
 import { defineConfig } from 'vite';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
+const previousAssets = new Map<string, Buffer>();
 export default defineConfig({
   plugins: [react(), tailwindcss(), {
     name: 'usfirst-shell-cache',
     apply: 'build',
+    buildStart() {
+      previousAssets.clear();
+      const output = process.env.USFIRST_PREVIOUS_DIST ? path.resolve(process.env.USFIRST_PREVIOUS_DIST) : path.resolve(import.meta.dirname, 'dist');
+      const swPath = path.join(output, 'sw.js');
+      if (!existsSync(swPath)) return;
+      const match = readFileSync(swPath, 'utf8').match(/const ASSETS = (.+);/);
+      if (!match) return;
+      for (const asset of JSON.parse(match[1]) as string[]) {
+        if (!/^\.\/assets\/[A-Za-z0-9_.-]+\.(js|css)$/.test(asset)) continue;
+        const file = path.join(output, asset);
+        if (existsSync(file)) previousAssets.set(asset, readFileSync(file));
+      }
+    },
     closeBundle() {
       const output = path.resolve(import.meta.dirname, 'dist');
       const indexPath = path.join(output, 'index.html');
@@ -30,6 +44,12 @@ export default defineConfig({
       const version = hash.digest('hex').slice(0, 16);
       writeFileSync(indexPath, html.replace('</head>', `<meta name="usfirst-build" content="${version}" /></head>`));
       writeFileSync(path.join(output, 'sw.js'), template.replace('__SHELL_VERSION__', JSON.stringify(version)).replace('__SHELL_ASSETS__', JSON.stringify(assets)).replace('__SHELL_REQUIRED__', JSON.stringify(required)));
+      // Preserve precisely the immediately previous build's chunks for active old tabs.
+      // Do not include them in current ASSETS/hash or retention would accumulate indefinitely.
+      for (const [asset, data] of previousAssets) {
+        const file = path.join(output, asset);
+        if (!existsSync(file)) writeFileSync(file, data);
+      }
     },
   }],
   base: '/',

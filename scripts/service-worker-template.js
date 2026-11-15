@@ -77,26 +77,54 @@ self.addEventListener('notificationclick', event => {
   })());
 });
 
+function recoveryPage() {
+  // Available even if browser evicted every shell cache and the network is unavailable.
+  const html = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#551e42"><title>一起花</title><style>html,body{margin:0;background:#551e42;color:#fff2fa;font-family:-apple-system,sans-serif}main{padding:calc(32px + env(safe-area-inset-top)) 24px;line-height:1.8}h1{font-size:24px}a{display:inline-block;padding:12px 24px;border-radius:18px;background:#d6f56a;color:#2c3317;text-decoration:none}p{color:#efc9dd}</style><main><h1>一起花.</h1><h2>暂时无法加载页面</h2><p>页面资源暂不可用，请联网后重新打开。服务器上的申请记录不会被删除。</p><a href="/">重新打开</a></main></html>';
+  return new Response(html, { headers: { 'Content-Type':'text/html; charset=utf-8', 'Cache-Control':'no-store', 'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" } });
+}
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   const navigation = request.mode === 'navigate' && (url.pathname === '/' || url.pathname === '/index.html');
+  const freshNavigation = navigation && url.searchParams.has('__usfirst_reload');
   const oldAsset = /^\/assets\/[A-Za-z0-9_.-]+\.(js|css|woff2?|png|svg)$/.test(url.pathname);
   if (!navigation && !assetUrls.includes(url.href) && !oldAsset) return;
   event.respondWith((async () => {
-    const cache = await caches.open(CACHE);
-    let cached = await cache.match(navigation ? SHELL_URL : url.href);
-    if (!cached && oldAsset) {
-      const owned = (await caches.keys()).filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE);
-      for (const name of owned) { cached = await (await caches.open(name)).match(url.href); if (cached) break; }
+    let cache, cached;
+    try {
+      cache = await caches.open(CACHE);
+      cached = await cache.match(navigation ? SHELL_URL : url.href);
+      if (!cached && oldAsset) {
+        const owned = (await caches.keys()).filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE);
+        for (const name of owned) { cached = await (await caches.open(name)).match(url.href); if (cached) break; }
+      }
+    } catch { /* Cache read failure is not a network failure. Continue online. */ }
+    if (cached && !freshNavigation) return cached;
+    try {
+      const response = await fetchBounded(freshNavigation ? SHELL_URL : request.url, freshNavigation);
+      if (navigation && (!response.ok || !/text\/html/.test(response.headers.get('content-type') || ''))) throw new Error('Invalid navigation');
+      if (cache && assetUrls.includes(url.href) && valid(response, url.pathname)) {
+        try { await cache.put(url.href, response.clone()); } catch { /* A successful network response is still usable. */ }
+      }
+      return response;
+    } catch (error) {
+      if (!navigation) throw error;
+      if (cached) return cached;
+      // Prefer an intact previous HTML+entry pair after eviction; never mix a new shell with old JS.
+      try {
+        const owned = (await caches.keys()).filter(key => key.startsWith(CACHE_PREFIX)).reverse();
+        for (const name of owned) {
+          const previous = await caches.open(name), shell = await previous.match(SHELL_URL);
+          if (!shell) continue;
+          const text = await shell.clone().text();
+          const entries = [...text.matchAll(/<script\b[^>]*src="([^\"]+)"[^>]*>/g)].map(match => new URL(match[1],SHELL_URL).href);
+          if (!entries.length) continue;
+          const complete = await Promise.all(entries.map(entry => previous.match(entry)));
+          if (complete.every(Boolean)) return shell;
+        }
+      } catch { /* Recovery below needs no cache, JavaScript or network. */ }
+      return recoveryPage();
     }
-    if (cached) return cached;
-    const response = await fetchBounded(request.url);
-    // Runtime-cache only this version's immutable build resources, not private APIs or unknown paths.
-    if (assetUrls.includes(url.href) && valid(response, url.pathname)) {
-      try { await cache.put(url.href, response.clone()); } catch { /* Storage failure must not break a successful online response. */ }
-    }
-    return response;
   })());
 });

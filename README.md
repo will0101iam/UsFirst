@@ -28,6 +28,8 @@
 
 - iPhone 主屏幕布局使用稳定高度外壳，内容独立滚动、导航独立底部行，不跟随申请高度或同步提示收缩；底部至少预留34px横条区域，安全区读值短暂归零不再让按钮下落。普通浏览器仍使用原固定导航。`scripts/layout-browser-fixture.py` 的 `/?standalone=1`只在本地激活生产standalone CSS进行长快照→同步与安全区0/34px对照，不是iPhone实机模拟；实际iOS启动/键盘仍待手机确认。
 
+- 独立启动页移到React根节点之外，内联小boot读取白名单快照即刻显示最多30条只读文字记录，不等主脚本。只有可见应用渲染成功才隐藏；组件异常恢复独立启动页和重新加载入口，不展示原始错误。缓存读取失败继续网络，网络与缓存都不可用时SW返回无需JS的恢复页面；不缓存恢复页、API或照片。构建保留精确上一版静态chunks以兼容旧标签；需要指定上一版独立构建目录时用 `USFIRST_PREVIOUS_DIST`，路径仅构建期使用、不进入浏览器。主脚本失败时也后台检查SW更新，而不是等待业务接口成功。手动重新加载使用一次性参数优先获取新HTML，网络失败保留可用旧壳，不删除账号、快照、推送订阅或全局缓存。
+
 ## 性能验证与选择依据
 
 - 选择缩短启动关键路径、核心外壳缓存与静态直出，而不是继续延长业务等待或把私有审批结果离线缓存。
@@ -68,6 +70,7 @@ npm run test:snapshot-store
 npm run test:snapshot-home
 npm run test:push
 npm run test:push-client
+npm run test:boot-recovery
 ```
 
 接口回归只允许 localhost，使用随机测试账号，不写入线上。默认使用仓库内的小尺寸测试照片；也可设 `TEST_PHOTO` 指向一张 JPEG。

@@ -8,9 +8,9 @@ import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <MountedSignal/>
     <ErrorBoundary FallbackComponent={ErrorFallback}>
       <App />
+      <MountedSignal/>
     </ErrorBoundary>
   </StrictMode>,
 );
