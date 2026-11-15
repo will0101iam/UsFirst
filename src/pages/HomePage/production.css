@@ -29,6 +29,8 @@
 .settings-install h3 { font-size:15px; font-weight:550; }
 .settings-install p,.settings-footnote { font-size:12px; line-height:1.9; color:var(--muted-foreground); margin-top:10px; }
 .settings-footnote { margin-top:25px; }
+.snapshot-status { width:100%; text-align:left; padding:12px 0; color:var(--muted-foreground); font-size:12px; line-height:1.7; }
+.new-request:disabled { opacity:.5; cursor:default; }
 .connection-error { font-size:12px; color:var(--warning); width:100%; text-align:left; padding:14px 0; }
 .oa-page .workspace { margin-top:40px; }
 .oa-page .workspace-heading h1 { font-size:18px; font-weight:550; }

@@ -24,7 +24,9 @@
     "test:startup-scheduling": "node scripts/test-startup-scheduling.mjs",
     "test:home-performance": "node scripts/test-home-performance.mjs",
     "test:critical-startup": "node scripts/test-critical-startup.mjs",
-    "bench:transport": "python3 scripts/benchmark-transport.py"
+    "bench:transport": "python3 scripts/benchmark-transport.py",
+    "test:snapshot-store": "node scripts/test-snapshot-store.mjs",
+    "test:snapshot-home": "node scripts/test-snapshot-home.mjs"
   },
   "dependencies": {
     "@formkit/auto-animate": "^0.9.0",
