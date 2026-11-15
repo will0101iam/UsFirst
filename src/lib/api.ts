@@ -1,6 +1,9 @@
 import type { IRequest, IRequestInput, Status } from './oa-types';
 import type { ImageRecognizer } from './image-recognition-contract';
 export interface SessionState { user: { username: string; displayName: string } | null; pair: { partnerName: string } | null; recognitionAvailable: boolean }
+export interface BootstrapState { session: SessionState; requests: IRequest[] | null; revision: string }
+declare global { interface Window { __usfirstStartup?: Promise<Response> } }
+export function clearStartupPrefetch() { if (typeof window !== 'undefined') window.__usfirstStartup = undefined; }
 export class ApiError extends Error { constructor(message: string, public status: number, public code?: string) { super(message); } }
 export async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const abort = new AbortController();
@@ -8,7 +11,7 @@ export async function api<T>(path: string, body?: unknown, signal?: AbortSignal)
   const onAbort = () => abort.abort();
   if (signal?.aborted) abort.abort();
   signal?.addEventListener('abort', onAbort, { once: true });
-  const timeoutMs = path === '/recognize' ? 45000 : body === undefined ? 10000 : 20000;
+  const timeoutMs = path === '/recognize' ? 45000 : body === undefined ? 25000 : 20000;
   const timeout = setTimeout(() => { timedOut = true; abort.abort(); }, timeoutMs);
   let rejectCancelled: (error: Error) => void = () => {};
   const cancelled = new Promise<never>((_, reject) => { rejectCancelled = reject; });
@@ -19,7 +22,12 @@ export async function api<T>(path: string, body?: unknown, signal?: AbortSignal)
   if (abort.signal.aborted) onCancelled();
   try {
     const work = async () => {
-      const response = await fetch(`/api${path}`, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-UsFirst': '1' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: abort.signal });
+      const prefetched = path === '/bootstrap' && typeof window !== 'undefined' ? window.__usfirstStartup : undefined;
+      if (prefetched) clearStartupPrefetch();
+      const response = await (prefetched ? prefetched.catch(error => {
+        if (error instanceof Error && error.name === 'AbortError') throw new ApiError('连接超时，请重试。', 0, 'connection_timeout');
+        throw error;
+      }) : fetch(`/api${path}`, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-UsFirst': '1' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: abort.signal }));
       const result: unknown = await response.json().catch(() => null);
       if (!response.ok) {
         const error = result && typeof result === 'object' ? result as Record<string, unknown> : {};
@@ -39,6 +47,7 @@ export async function api<T>(path: string, body?: unknown, signal?: AbortSignal)
     abort.signal.removeEventListener('abort', onCancelled);
   }
 }
+export const getBootstrap = (revision = '') => api<BootstrapState>('/bootstrap' + (revision ? '?revision=' + encodeURIComponent(revision) : ''));
 export const getSession = () => api<SessionState>('/session');
 export const getRequests = () => api<{ requests: IRequest[] }>('/requests');
 export const createRequest = (input: IRequestInput, id: string) => api('/requests', { ...input, id });

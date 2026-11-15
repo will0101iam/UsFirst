@@ -15,6 +15,7 @@ interface Env {
 }
 interface User { id: string; username: string; display_name: string }
 interface Pair { id: string; partner_id: string; partner_name: string }
+interface StartupUser extends User { pair_id: string | null; partner_id: string | null; partner_name: string | null }
 interface RequestRow {
   id: string; pair_id: string; applicant_id: string; title: string; amount_cents: number;
   category: '网购' | '外卖' | '其他'; reason: string;
@@ -103,6 +104,23 @@ function requestData(row: RequestRow, user: User, photos: { id: string; name: st
     ...(row.decision_note ? { decisionNote: row.decision_note } : {}), photos: photos.map(photo => ({ name: photo.name, dataUrl: `/api/photos/${photo.id}` })) };
 }
 
+async function readRequests(user: User, pairId: string, env: Env) {
+  // One indexed read; aggregate photo metadata only for the 300 selected rows, never photo data.
+  const rows = await env.DB.prepare(`SELECT r.*, (SELECT json_group_array(json_object('id',p.id,'name',p.name)) FROM photos p WHERE p.request_id=r.id ORDER BY p.id) AS photo_metadata FROM requests r WHERE r.pair_id=? ORDER BY r.created_at DESC LIMIT 300`).bind(pairId).all<RequestRow & { photo_metadata: string }>();
+  return rows.results.map(row => requestData(row, user, JSON.parse(row.photo_metadata) as { id: string; name: string }[]));
+}
+async function bootstrap(request: Request, env: Env) {
+  const started = performance.now();
+  const token = request.headers.get('Cookie')?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
+  const user = token && /^[a-f0-9]{64}$/.test(token) ? await env.DB.prepare(`SELECT u.id,u.username,u.display_name,m.pair_id,other.user_id AS partner_id,partner.display_name AS partner_name FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN members m ON m.user_id=u.id LEFT JOIN members other ON other.pair_id=m.pair_id AND other.user_id<>u.id LEFT JOIN users partner ON partner.id=other.user_id WHERE s.token_hash=? AND s.expires_at>?`).bind(await digest(token), Date.now()).first<StartupUser>() : null;
+  const session = { user: user ? { username: user.username, displayName: user.display_name } : null, pair: user?.partner_id ? { partnerName: user.partner_name } : null, recognitionAvailable: !!user && !!env.OPENROUTER_API_KEY };
+  const requests = user?.pair_id && user.partner_id ? await readRequests(user, user.pair_id, env) : [];
+  const revision = await digest(JSON.stringify({ session, requests }));
+  const unchanged = new URL(request.url).searchParams.get('revision') === revision;
+  const response = json({ session, requests: unchanged ? null : requests, revision });
+  response.headers.set('Server-Timing', `app;dur=${(performance.now() - started).toFixed(1)}`);
+  return response;
+}
 async function api(request: Request, env: Env): Promise<Response> {
   const path = new URL(request.url).pathname; const method = request.method;
   if (!['GET', 'POST'].includes(method)) throw new HttpError(405, '不支持的操作');
@@ -112,6 +130,7 @@ async function api(request: Request, env: Env): Promise<Response> {
   }
   const ip = request.headers.get('CF-Connecting-IP') || 'local';
   if (path === '/api/health' && method === 'GET') return json({ ok: true, service: 'UsFirst' });
+  if (path === '/api/bootstrap' && method === 'GET') return bootstrap(request, env);
   if ((path === '/api/auth/register' || path === '/api/auth/login') && method === 'POST') {
     await rate(env, ip, 'auth-ip', 20, 900);
     const raw = await readBody(request, 4096);
@@ -166,9 +185,7 @@ async function api(request: Request, env: Env): Promise<Response> {
   const pair = await pairFor(user, env);
   if (!pair) throw new HttpError(409, '先用邀请码连接对方');
   if (path === '/api/requests' && method === 'GET') {
-    const rows = await env.DB.prepare('SELECT * FROM requests WHERE pair_id=? ORDER BY created_at DESC LIMIT 300').bind(pair.id).all<RequestRow>();
-    const photos = await env.DB.prepare('SELECT p.id,p.name,p.request_id FROM photos p JOIN requests r ON r.id=p.request_id WHERE r.pair_id=? ORDER BY p.id').bind(pair.id).all<{ id: string; name: string; request_id: string }>();
-    return json({ requests: rows.results.map(row => requestData(row, user, photos.results.filter(photo => photo.request_id === row.id))) });
+    return json({ requests: await readRequests(user, pair.id, env) });
   }
   if (path === '/api/requests' && method === 'POST') {
     await rate(env, user.id, 'request-day', 50, 86400);

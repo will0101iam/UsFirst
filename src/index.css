@@ -1,4 +1,13 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+/* Scan only shipped UI, not unused design demos and the full template component library. */
+@source "./components/*.tsx";
+@source "./components/ui/button.tsx";
+@source "./components/ui/image.tsx";
+@source "./components/ui/drawer.tsx";
+@source "./components/ui/dialog.tsx";
+@source "./pages/HomePage";
+@source "./pages/NotFoundPage";
+@source "./app.tsx";
 @import "tw-animate-css";
 @import "./tailwind-theme.css";
 @import "./typography.css";

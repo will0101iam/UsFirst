@@ -19,7 +19,10 @@
     "test:minimum-price": "node scripts/test-minimum-price.mjs",
     "test:request-form": "node scripts/test-request-form.mjs",
     "test:network-recovery": "node scripts/test-network-recovery.mjs",
-    "test:shell-cache": "node scripts/test-shell-cache.mjs"
+    "test:shell-cache": "node scripts/test-shell-cache.mjs",
+    "test:bootstrap": "node scripts/test-bootstrap.mjs",
+    "test:startup-scheduling": "node scripts/test-startup-scheduling.mjs",
+    "test:home-performance": "node scripts/test-home-performance.mjs"
   },
   "dependencies": {
     "@formkit/auto-animate": "^0.9.0",

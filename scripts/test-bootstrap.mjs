@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+const base = process.env.TEST_BASE || 'http://127.0.0.1:28789';
+if (!/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(base)) throw new Error('local only');
+const calls = [];
+async function call(path, cookie = '', body) {
+  const response = await fetch(base + '/api' + path, { method: body ? 'POST' : 'GET', headers: { ...(cookie ? { Cookie: cookie } : {}), ...(body ? { 'Content-Type': 'application/json', 'X-UsFirst': '1', Origin: base, 'CF-Connecting-IP': 'bootstrap-' + suffix } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  return { response, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] || cookie };
+}
+const suffix = randomBytes(6).toString('hex');
+const first = await call('/bootstrap');
+assert.equal(first.response.status, 200, 'startup must have one combined API endpoint');
+assert.equal(first.data.session.user, null); assert.deepEqual(first.data.requests, []);
+assert.equal(first.response.headers.get('cache-control'), 'no-store');
+const password = randomBytes(20).toString('hex');
+const a = await call('/auth/register', '', { username: 'perf_' + suffix + '_a', displayName: '测试甲', password });
+const b = await call('/auth/register', '', { username: 'perf_' + suffix + '_b', displayName: '测试乙', password });
+const c = await call('/auth/register', '', { username: 'perf_' + suffix + '_c', displayName: '测试丙', password });
+const unpaired = await call('/bootstrap', a.cookie); assert.equal(unpaired.data.session.pair, null);
+const invite = await call('/invites', a.cookie, {}); await call('/invites/join', b.cookie, { code: invite.data.code });
+const id = randomUUID();
+const photo = { name: 'fixture.jpg', dataUrl: 'data:image/jpeg;base64,' + (await readFile(new URL('./fixtures/test-photo.jpg', import.meta.url))).toString('base64') };
+await call('/requests', a.cookie, { id, title: '性能回归', amountCents: 2900, category: '网购', reason: '', photos: [photo] });
+const started = await call('/bootstrap', b.cookie); assert.equal(started.data.session.pair.partnerName, '测试甲');
+assert.equal(started.data.requests.length, 1); assert.equal(started.data.requests[0].applicant, 'partner');
+assert.equal(started.data.requests[0].photos.length, 1); assert.ok(started.data.requests[0].photos[0].dataUrl.startsWith('/api/photos/'));
+assert.ok(!JSON.stringify(started.data).includes('base64'), 'bootstrap contains private photo metadata only');
+assert.equal(started.response.headers.get('cache-control'), 'no-store');
+assert.ok(started.response.headers.get('server-timing'));
+const unchanged = await call('/bootstrap?revision=' + started.data.revision, b.cookie);
+assert.equal(unchanged.data.requests, null); assert.equal(unchanged.data.revision, started.data.revision);
+await call('/requests/' + id + '/status', b.cookie, { status: 'approved' });
+const changed = await call('/bootstrap?revision=' + started.data.revision, b.cookie);
+assert.notEqual(changed.data.revision, started.data.revision); assert.equal(changed.data.requests[0].status, 'approved');
+const other = await call('/bootstrap?revision=' + changed.data.revision, c.cookie);
+assert.equal(other.data.session.pair, null); assert.deepEqual(other.data.requests, []);
+await call('/auth/logout', b.cookie, {});
+const expired = await call('/bootstrap?revision=' + changed.data.revision, b.cookie);
+assert.equal(expired.data.session.user, null); assert.deepEqual(expired.data.requests, []);
+// Count actual Worker SQL dispatches at the production adapter boundary, no timing sleeps.
+const built = await build({ entryPoints: ['worker/index.ts'], bundle: true, write: false, format: 'esm', platform: 'browser', target: 'es2023' });
+const worker = (await import('data:text/javascript;base64,' + Buffer.from(built.outputFiles[0].text).toString('base64'))).default;
+const db = { prepare(sql) { return { bind() { return this; }, async first() { calls.push(sql); return { id: 'test-a', username: 'test', display_name: '测试', pair_id: 'test-pair', partner_id: 'test-b', partner_name: '伙伴' }; }, async all() { calls.push(sql); return { results: [] }; } }; } };
+const response = await worker.fetch(new Request('https://usfirst.example/api/bootstrap', { headers: { Cookie: 'usfirst_session=' + 'a'.repeat(64) } }), { DB: db });
+assert.equal(response.status, 200); assert.equal(calls.length, 2, 'paired startup uses two SQL reads, not six sequential reads');
+console.log(JSON.stringify({ ok: true, checks: 12, startupRequests: 1, sqlReads: calls.length, environment: 'local-only', networkLLMCalls: 0 }));

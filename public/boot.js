@@ -18,6 +18,12 @@
   window.addEventListener('online', function () {
     if (boot && document.getElementById('boot-shell') && status) status.textContent = '网络已恢复，请重试。';
   });
+  // Begin the authenticated read while the main bundle downloads; consume it once in React.
+  var startupAbort = new AbortController();
+  var startupTimer = setTimeout(function () { startupAbort.abort(); }, 25000);
+  window.__usfirstStartup = fetch('/api/bootstrap', { credentials: 'same-origin', cache: 'no-store', signal: startupAbort.signal });
+  window.__usfirstStartup.catch(function () {});
+  window.addEventListener('usfirst:connected', function () { clearTimeout(startupTimer); });
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname))) {
     // Never wait for the SW before rendering. Failed installs leave the previous usable shell.
     var pending;
@@ -28,9 +34,21 @@
         .catch(function () {})
         .finally(function () { pending = null; });
     }
-    update();
-    window.addEventListener('online', update);
-    window.addEventListener('pageshow', update);
-    document.addEventListener('visibilitychange', update);
+    var connected = false;
+    var queued = false;
+    var lastUpdate = 0;
+    function scheduleUpdate() {
+      if (!connected || document.hidden || pending || queued || Date.now() - lastUpdate < 60000) return;
+      queued = true;
+      setTimeout(function () {
+        queued = false;
+        if (document.hidden) return;
+        lastUpdate = Date.now(); update();
+      }, 6000);
+    }
+    window.addEventListener('usfirst:connected', function () { connected = true; scheduleUpdate(); });
+    window.addEventListener('online', scheduleUpdate);
+    window.addEventListener('pageshow', scheduleUpdate);
+    document.addEventListener('visibilitychange', scheduleUpdate);
   }
 })();

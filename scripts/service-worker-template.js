@@ -31,11 +31,11 @@ self.addEventListener('install', event => {
       const shell = await fetchBounded(SHELL_URL);
       if (!shell.ok || !(await shell.clone().text()).includes('content="' + VERSION + '"')) throw new Error('Shell version mismatch');
       // Commit a usable version only after every build asset is present.
-      await Promise.all(assetUrls.map(async url => {
+    for (const url of assetUrls) {
         const response = await fetchBounded(url);
         if (!valid(response, new URL(url).pathname)) throw new Error('Invalid shell asset');
         await cache.put(url, response);
-      }));
+      }
       await cache.put(SHELL_URL, shell);
       await self.skipWaiting();
     } catch (error) { await caches.delete(CACHE); throw error; }

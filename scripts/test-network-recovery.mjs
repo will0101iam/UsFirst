@@ -14,7 +14,7 @@ try {
     globalThis.fetch = () => { calls++; return new Promise(() => {}); };
     const result = client.getSession().then(value => ({ value }), error => ({ error }));
     await ticks(); assert.equal(timers.size, 1, '必须给会话请求设置等待上限');
-    assert.ok([...timers.values()][0].ms <= 12000); [...timers.values()][0].callback();
+    assert.ok([...timers.values()][0].ms <= 30000); [...timers.values()][0].callback();
     const { error } = await result; assert.equal(error?.code, 'connection_timeout');
   });
   await check('已到响应头但 JSON 卡住也会超时', async () => {
@@ -39,6 +39,14 @@ try {
     globalThis.fetch = async () => new Response('<html>wrong</html>');
     await assert.rejects(client.getSession(), error => error.code === 'invalid_response');
   });
-  console.log(JSON.stringify({ checks: 5, failures, networkCalls: 0 }));
+  await check('预取超时显示中文连接错误且不重复请求', async () => {
+    let fetches = 0; globalThis.fetch = () => { fetches++; return new Promise(() => {}); };
+    globalThis.window = { __usfirstStartup: Promise.reject(new DOMException('Aborted', 'AbortError')) };
+    const error = await client.getBootstrap().catch(error => error);
+    assert.equal(error.code, 'connection_timeout'); assert.equal(error.message, '连接超时，请重试。');
+    assert.equal(fetches, 0); assert.equal(window.__usfirstStartup, undefined);
+    delete globalThis.window;
+  });
+  console.log(JSON.stringify({ checks: 6, failures, networkCalls: 0 }));
   if (failures.length) process.exitCode = 1;
 } finally { Object.assign(globalThis, original); }

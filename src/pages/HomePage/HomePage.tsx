@@ -10,7 +10,7 @@ import PairPanel from '@/components/PairPanel';
 const SettingsSheet = lazy(() => import('@/components/SettingsSheet'));
 const RejectSheet = lazy(() => import('@/components/RejectSheet'));
 const PhotoViewer = lazy(() => import('@/components/PhotoViewer'));
-import { api, ApiError, getSession, getRequests, createRequest as sendRequest, updateRequest as sendUpdate, recognizePhotos } from '@/lib/api';
+import { api, ApiError, getBootstrap, clearStartupPrefetch, createRequest as sendRequest, updateRequest as sendUpdate, recognizePhotos } from '@/lib/api';
 import type { SessionState } from '@/lib/api';
 import type { IRequest, IRequestInput, Status } from '@/lib/oa-types';
 import './home.css';
@@ -25,35 +25,44 @@ export default function HomePage() {
   const [formOpen, setFormOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [selectedId, setSelectedId] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null); const [photo, setPhoto] = useState<{ photos: IRequest['photos']; index: number } | null>(null);
   const [busy, setBusy] = useState(false); const refreshRunning = useRef(false); const sessionEpoch = useRef(0); const actionRunning = useRef(false); const draftId = useRef(crypto.randomUUID());
-  const refresh = useCallback(async (_silent = false) => {
-    if (refreshRunning.current) return;
+  const revision = useRef(''); const refreshPending = useRef(false); const lastRefresh = useRef(0);
+  const refresh = useCallback(async function refreshNow(silent = false) {
+    if (refreshRunning.current) { if (!silent) refreshPending.current = true; return; }
+    if (silent && Date.now() - lastRefresh.current < 4000) return;
     refreshRunning.current = true; const epoch = sessionEpoch.current;
     try {
-      const next = await getSession();
+      const next = await getBootstrap(revision.current);
       if (epoch !== sessionEpoch.current) return;
-      setSession(next); setLoading(false);
-      const value = next.user && next.pair ? await getRequests() : { requests: [] };
-      if (epoch !== sessionEpoch.current) return;
-      setRequests(value.requests);
+      revision.current = next.revision;
+      setSession(next.session);
+      if (next.requests !== null) setRequests(next.requests);
       setConnectionError('');
     } catch (error) {
       if (epoch !== sessionEpoch.current) return;
-      if (error instanceof ApiError && error.status === 401) { setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); }
+      if (error instanceof ApiError && error.status === 401) { setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); revision.current = ''; }
       else setConnectionError(error instanceof Error ? error.message : '连接失败，请重试');
-    } finally { setLoading(false); refreshRunning.current = false; }
+    } finally {
+      setLoading(false); refreshRunning.current = false; lastRefresh.current = Date.now();
+      window.dispatchEvent(new Event('usfirst:connected'));
+      if (refreshPending.current) { refreshPending.current = false; window.setTimeout(() => void refreshNow(), 0); }
+    }
   }, []);
-  useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); const interval = window.setInterval(() => { if (!document.hidden) void refresh(true); }, 8000); const focus = () => { if (!document.hidden) void refresh(true); }; window.addEventListener('focus', focus); window.addEventListener('online', focus); window.addEventListener('pageshow', focus); document.addEventListener('visibilitychange', focus); return () => { clearTimeout(initial); clearInterval(interval); window.removeEventListener('focus', focus); window.removeEventListener('online', focus); window.removeEventListener('pageshow', focus); document.removeEventListener('visibilitychange', focus); }; }, [refresh]);
+  useEffect(() => { const initial = window.setTimeout(() => void refresh(true), 0); const interval = window.setInterval(() => { if (!document.hidden) void refresh(true); }, 8000); const focus = () => { if (!document.hidden) void refresh(true); }; window.addEventListener('focus', focus); window.addEventListener('online', focus); window.addEventListener('pageshow', focus); document.addEventListener('visibilitychange', focus); return () => { clearTimeout(initial); clearInterval(interval); window.removeEventListener('focus', focus); window.removeEventListener('online', focus); window.removeEventListener('pageshow', focus); document.removeEventListener('visibilitychange', focus); }; }, [refresh]);
   async function create(input: IRequestInput) {
-    await sendRequest(input, draftId.current); draftId.current = crypto.randomUUID(); await refresh(); setView('mine'); setFilter('pending'); toast.success('申请已提交');
+    const id = draftId.current;
+    await sendRequest(input, id); draftId.current = crypto.randomUUID();
+    sessionEpoch.current++; revision.current = ''; clearStartupPrefetch();
+    setRequests(previous => [{ ...input, id, applicant: 'me', status: 'pending', createdAt: new Date().toISOString() }, ...previous.filter(row => row.id !== id)]);
+    setView('mine'); setFilter('pending'); toast.success('申请已提交'); void refresh();
   }
   async function update(id: string, status: Status, note = '') {
     if (actionRunning.current) return; actionRunning.current = true; setBusy(true);
-    try { await sendUpdate(id, status, note); setSelectedId(null); setRejectId(null); await refresh(); toast.success(status === 'approved' ? '已同意购买' : status === 'rejected' ? '已记录，这次先不买' : status === 'purchased' ? '已标记购买' : '申请已撤回'); }
+    try { await sendUpdate(id, status, note); sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); setRequests(previous => previous.map(row => row.id === id ? { ...row, status, decisionNote: note || row.decisionNote } : row)); setSelectedId(null); setRejectId(null); toast.success(status === 'approved' ? '已同意购买' : status === 'rejected' ? '已记录，这次先不买' : status === 'purchased' ? '已标记购买' : '申请已撤回'); void refresh(); }
     catch (error) { toast.error(error instanceof Error ? error.message : '操作失败'); await refresh(true); }
     finally { actionRunning.current = false; setBusy(false); }
   }
-  async function logout() { try { await api('/auth/logout', {}); sessionEpoch.current++; setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); setSettingsOpen(false); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); draftId.current = crypto.randomUUID(); } catch (error) { toast.error(error instanceof Error ? error.message : '退出失败'); } }
-  function authenticated(next: SessionState) { sessionEpoch.current++; draftId.current = crypto.randomUUID(); setRequests([]); setSession(next); void refresh(); }
+  async function logout() { try { await api('/auth/logout', {}); sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); setSettingsOpen(false); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); draftId.current = crypto.randomUUID(); } catch (error) { toast.error(error instanceof Error ? error.message : '退出失败'); } }
+  function authenticated(next: SessionState) { sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); draftId.current = crypto.randomUUID(); setRequests([]); setSession(next); void refresh(); }
   const selected = requests.find(request => request.id === selectedId); const rejecting = requests.find(request => request.id === rejectId);
   const waiting = requests.filter(request => request.applicant === 'partner' && request.status === 'pending');
   const displayed = requests.filter(request => (view === 'mine' ? request.applicant === 'me' : request.applicant === 'partner') && (filter === 'all' || (filter === 'closed' ? ['rejected', 'cancelled', 'purchased'].includes(request.status) : request.status === filter)));
