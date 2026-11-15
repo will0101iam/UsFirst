@@ -14,6 +14,7 @@ build/
 !.env.example
 !.dev.vars.example
 .wrangler/
+worker/shell-policy.ts
 
 # Local design backups and references are not production assets
 _backup/

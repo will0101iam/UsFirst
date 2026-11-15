@@ -13,7 +13,7 @@
     "dev:api": "wrangler dev --port 28789",
     "db:local": "wrangler d1 migrations apply DB --local",
     "db:remote": "wrangler d1 migrations apply DB --remote",
-    "deploy": "npm run lint && npm run typecheck:worker && npm run build && wrangler deploy",
+    "deploy": "npm run build && npm run lint && npm run typecheck:worker && wrangler deploy",
     "test:api": "node scripts/test-api.mjs",
     "test:recognition-errors": "node scripts/test-recognition-errors.mjs",
     "test:minimum-price": "node scripts/test-minimum-price.mjs",
@@ -22,7 +22,9 @@
     "test:shell-cache": "node scripts/test-shell-cache.mjs",
     "test:bootstrap": "node scripts/test-bootstrap.mjs",
     "test:startup-scheduling": "node scripts/test-startup-scheduling.mjs",
-    "test:home-performance": "node scripts/test-home-performance.mjs"
+    "test:home-performance": "node scripts/test-home-performance.mjs",
+    "test:critical-startup": "node scripts/test-critical-startup.mjs",
+    "bench:transport": "python3 scripts/benchmark-transport.py"
   },
   "dependencies": {
     "@formkit/auto-animate": "^0.9.0",

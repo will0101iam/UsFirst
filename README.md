@@ -14,10 +14,19 @@
 - 同源 Worker 图片识别 API，使用 OpenRouter Qwen3.7 Flash，字段证据校验、超时和限流。识别现价、规格价、明确券后价、实付／应付中的最低购买价，支持区间下限与起价，排除划线原价、优惠券金额、分期每期金额、运费和定金；无可信价格留空。最低价仍需核对规格、优惠条件及运费。需要单独配置服务端密钥。
 - 关闭未提交申请后丢弃本次填写、照片和识别状态；再次发起为全新申请。返回图片选择仍保留本次填写；旧异步照片处理和识别结果不会回填新表单。
 - 正式主页没有演示身份、示例申请和重复导航。旧设计源码保留，但生产不注册设计演示路由。
-- 主屏幕启动借鉴 MOJI 的外壳优先：成功安装后从缓存启动完整页面资源，后台检查更新，更新文件必须全部成功且配套才启用；保留前一版供旧标签继续加载，仅清理 UsFirst 自己的缓存。账号、申请 API、照片和所有 POST 不缓存、不离线提交。
+- 主屏幕启动借鉴 MOJI 的外壳优先：成功安装后从缓存启动，后台检查更新；仅 HTML 与首屏依赖必须配套完整才启用，非首屏弹窗不再阻塞安装，首次打开后按需缓存合法静态资源。保留前一版供旧标签继续加载，仅清理 UsFirst 自己的缓存。账号、申请 API、照片和所有 POST 不缓存、不离线提交。
 - HTML 有独立启动提示与重试，申请／详情弹窗按需加载；普通读取 25 秒超时、写操作 20 秒、识别 45 秒，不自动重发。恢复网络、返回前台自动重新读取服务器。
 - 启动合并为 `/api/bootstrap` 一次请求；已连接用户由两次索引 SQL 读取返回登录、配对、最近申请及照片元数据，无需先 session 再 requests。后台更新用 revision，未变化不重传完整列表；revision 不作为鉴权凭据，数据只在本页内存，退出即清空。
 - 页面脚本下载同时开始启动预取，React 只消费一次；预取完整响应后立即解除超时计时，主脚本迟到不丢弃已完成结果；响应体未完成仍有等待上限。完成首次读取 6 秒后才检查缓存更新，预下载串行避免竞争。成功提交／审批在服务器确认后立即更新界面，后台刷新不阻塞关闭反馈；旧刷新不得覆盖新状态。样式构建仅扫描正式界面，去除设计页与未用模板类。
+
+- 构建将小启动脚本和关键 CSS 内联，减少两个启动请求；脚本使用自动生成的精确 SHA-256 CSP 授权，不开放任意内联脚本。静态资源由 Cloudflare Assets 直接分发，只有 `/api/*` 先运行 Worker，安全头由同一构建同步生成。单生产页面不再携带完整路由库，首页私有照片使用原生加载，首屏 JS 315→249KB（Vite gzip约100→78KB）；C3视觉保持。
+
+## 性能验证与选择依据
+
+- 选择缩短启动关键路径、核心外壳缓存与静态直出，而不是继续延长业务等待或把私有审批结果离线缓存。
+- 官方依据：https://web.dev/articles/optimize-lcp 、https://web.dev/articles/service-worker-caching-and-http-caching 、https://developers.cloudflare.com/workers/static-assets/routing/worker-script/ 、https://developers.cloudflare.com/workers/static-assets/headers/ 。
+- 基线 `7de43b0`；本机真实浏览器受控匿名静态传输对照（每请求800ms延迟、50KB/s、HTTP/SW缓存不参与），三次界面可见时间旧版8391/8408/8354ms，新版7041/7011/7045ms，中位数8391→7041ms，约16%。这是实验室条件，不等于iPhone日本VPN线路结果。
+- `scripts/benchmark-transport.py` 默认读取 `_backup/performance-baseline-7de43b0` 的旧版dist（本机已保留，Git忽略）和当前dist；在真实浏览器分别打开32917/32918后用 `performance.getEntriesByName('bench-ready')` 读取。没有旧版dist时需在独立目录检出基线并构建，不能把新版当基线。
 
 ## 部署状态
 
@@ -47,6 +56,7 @@ npm run build && npm run test:shell-cache
 npm run test:bootstrap
 npm run test:startup-scheduling
 npm run test:home-performance
+npm run test:critical-startup
 ```
 
 接口回归只允许 localhost，使用随机测试账号，不写入线上。默认使用仓库内的小尺寸测试照片；也可设 `TEST_PHOTO` 指向一张 JPEG。

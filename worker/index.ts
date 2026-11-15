@@ -1,3 +1,4 @@
+import { shellPolicy } from './shell-policy';
 import { z } from 'zod';
 import { recognitionConfig, recognitionPrompt } from '../src/lib/recognition-config';
 import { parseRecognitionResult } from '../src/lib/image-recognition-contract';
@@ -269,7 +270,7 @@ export default {
       if (pathname === '/sw.js') headers.set('Service-Worker-Allowed', '/');
       headers.set('X-Content-Type-Options', 'nosniff'); headers.set('Referrer-Policy', 'same-origin'); headers.set('X-Frame-Options', 'DENY');
       headers.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-      headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'");
+      headers.set('Content-Security-Policy', shellPolicy);
       return new Response(response.body, { status: response.status, headers });
     } catch (error) {
       if (error instanceof HttpError) return json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, error.status);
