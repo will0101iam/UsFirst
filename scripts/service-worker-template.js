@@ -31,7 +31,7 @@ self.addEventListener('install', event => {
       const shell = await fetchBounded(SHELL_URL);
       if (!shell.ok || !(await shell.clone().text()).includes('content="' + VERSION + '"')) throw new Error('Shell version mismatch');
       // Commit a usable version only after every build asset is present.
-    for (const url of assetUrls) {
+      for (const url of assetUrls) {
         const response = await fetchBounded(url);
         if (!valid(response, new URL(url).pathname)) throw new Error('Invalid shell asset');
         await cache.put(url, response);
