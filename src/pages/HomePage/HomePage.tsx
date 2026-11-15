@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Inbox, FileText, Check, ChevronDown, RefreshCw, LoaderCircle } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
-import RequestForm from '@/components/RequestForm';
-import RequestDetail from '@/components/RequestDetail';
+const RequestForm = lazy(() => import('@/components/RequestForm'));
+const RequestDetail = lazy(() => import('@/components/RequestDetail'));
 import RequestCard from '@/components/RequestCard';
 import FocusRequest from '@/components/FocusRequest';
 import AuthPanel from '@/components/AuthPanel';
 import PairPanel from '@/components/PairPanel';
-import SettingsSheet from '@/components/SettingsSheet';
-import RejectSheet from '@/components/RejectSheet';
-import PhotoViewer from '@/components/PhotoViewer';
+const SettingsSheet = lazy(() => import('@/components/SettingsSheet'));
+const RejectSheet = lazy(() => import('@/components/RejectSheet'));
+const PhotoViewer = lazy(() => import('@/components/PhotoViewer'));
 import { api, ApiError, getSession, getRequests, createRequest as sendRequest, updateRequest as sendUpdate, recognizePhotos } from '@/lib/api';
 import type { SessionState } from '@/lib/api';
 import type { IRequest, IRequestInput, Status } from '@/lib/oa-types';
@@ -25,22 +25,24 @@ export default function HomePage() {
   const [formOpen, setFormOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [selectedId, setSelectedId] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null); const [photo, setPhoto] = useState<{ photos: IRequest['photos']; index: number } | null>(null);
   const [busy, setBusy] = useState(false); const refreshRunning = useRef(false); const sessionEpoch = useRef(0); const actionRunning = useRef(false); const draftId = useRef(crypto.randomUUID());
-  const refresh = useCallback(async (silent = false) => {
+  const refresh = useCallback(async (_silent = false) => {
     if (refreshRunning.current) return;
     refreshRunning.current = true; const epoch = sessionEpoch.current;
     try {
       const next = await getSession();
+      if (epoch !== sessionEpoch.current) return;
+      setSession(next); setLoading(false);
       const value = next.user && next.pair ? await getRequests() : { requests: [] };
       if (epoch !== sessionEpoch.current) return;
-      setSession(next); setRequests(value.requests);
+      setRequests(value.requests);
       setConnectionError('');
     } catch (error) {
       if (epoch !== sessionEpoch.current) return;
       if (error instanceof ApiError && error.status === 401) { setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); }
-      else if (!silent) setConnectionError(error instanceof Error ? error.message : '连接失败，请重试');
+      else setConnectionError(error instanceof Error ? error.message : '连接失败，请重试');
     } finally { setLoading(false); refreshRunning.current = false; }
   }, []);
-  useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); const interval = window.setInterval(() => { if (!document.hidden) void refresh(true); }, 8000); const focus = () => void refresh(true); window.addEventListener('focus', focus); document.addEventListener('visibilitychange', focus); return () => { clearTimeout(initial); clearInterval(interval); window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus); }; }, [refresh]);
+  useEffect(() => { const initial = window.setTimeout(() => void refresh(), 0); const interval = window.setInterval(() => { if (!document.hidden) void refresh(true); }, 8000); const focus = () => { if (!document.hidden) void refresh(true); }; window.addEventListener('focus', focus); window.addEventListener('online', focus); window.addEventListener('pageshow', focus); document.addEventListener('visibilitychange', focus); return () => { clearTimeout(initial); clearInterval(interval); window.removeEventListener('focus', focus); window.removeEventListener('online', focus); window.removeEventListener('pageshow', focus); document.removeEventListener('visibilitychange', focus); }; }, [refresh]);
   async function create(input: IRequestInput) {
     await sendRequest(input, draftId.current); draftId.current = crypto.randomUUID(); await refresh(); setView('mine'); setFilter('pending'); toast.success('申请已提交');
   }
@@ -63,11 +65,13 @@ export default function HomePage() {
     {view === 'mine' && <div className="status-filters">{filters.map(item => <button key={item.id} className={filter === item.id ? 'active' : ''} aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}</div>}
     <div className="request-list">{displayed.length ? focused ? <FocusRequest request={focused} onOpen={() => setSelectedId(focused.id)} onApprove={() => void update(focused.id, 'approved')} onReject={() => setRejectId(focused.id)} onPhoto={() => setPhoto({ photos: focused.photos, index: 0 })} busy={busy} applicantName={session.pair.partnerName}/> : displayed.map(request => <RequestCard key={request.id} request={request} applicantName={request.applicant === 'me' ? '我' : session.pair.partnerName} onOpen={() => setSelectedId(request.id)}/>) : <div className="empty-state"><span className="empty-check"><Check size={25}/></span><h2>{view === 'inbox' ? filter === 'all' ? '还没有审批记录' : '没有待审批的申请' : '这里还没有申请'}</h2>{view === 'mine' && <button className="empty-create" onClick={() => setFormOpen(true)}>申请一笔<Plus size={16}/></button>}</div>}</div></section>
     <div className="nav-dock"><nav className="bottom-nav" aria-label="主要导航"><button className={`nav-item ${view === 'inbox' ? 'active' : ''}`} aria-pressed={view === 'inbox'} onClick={() => { setView('inbox'); setFilter('pending'); }}><span className="nav-icon"><Inbox size={21}/>{waiting.length > 0 && <i/>}</span><span>审批</span></button><button className="new-request" onClick={() => setFormOpen(true)}><Plus size={22}/><span>申请一笔</span></button><button className={`nav-item ${view === 'mine' ? 'active' : ''}`} aria-pressed={view === 'mine'} onClick={() => { setView('mine'); setFilter('pending'); }}><FileText size={21}/><span>我的申请</span></button></nav></div>
-    <RequestForm open={formOpen} person="me" onClose={() => setFormOpen(false)} onCreate={create} recognize={session.recognitionAvailable ? recognizePhotos : undefined} partnerName={session.pair.partnerName}/>
+    <Suspense fallback={<p className="connection-error" role="status">正在打开…</p>}>
+    {formOpen && <RequestForm open={formOpen} person="me" onClose={() => setFormOpen(false)} onCreate={create} recognize={session.recognitionAvailable ? recognizePhotos : undefined} partnerName={session.pair.partnerName}/>}
     {selected && <RequestDetail key={selected.id} request={selected} person="me" onClose={() => setSelectedId(null)} onUpdate={(id, status, note) => void update(id, status, note)} onReject={() => { setSelectedId(null); setRejectId(selected.id); }} busy={busy} partnerName={session.pair.partnerName}/>}
     {rejecting && <RejectSheet request={rejecting} busy={busy} onClose={() => setRejectId(null)} onConfirm={note => update(rejecting.id, 'rejected', note)}/>}
     {photo && <PhotoViewer photos={photo.photos} index={photo.index} onClose={() => setPhoto(null)}/>}
+    </Suspense>
     </>}
-    {settingsOpen && session?.user && <SettingsSheet session={session} onClose={() => setSettingsOpen(false)} onLogout={logout}/>}
+    <Suspense fallback={<p className="connection-error" role="status">正在打开…</p>}>{settingsOpen && session?.user && <SettingsSheet session={session} onClose={() => setSettingsOpen(false)} onLogout={logout}/>}</Suspense>
   </main>;
 }

@@ -1,4 +1,5 @@
 import { StrictMode } from 'react';
+import MountedSignal from '@/components/MountedSignal';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { ErrorBoundary } from 'react-error-boundary';
@@ -8,6 +9,7 @@ import './index.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <MountedSignal/>
     <BrowserRouter basename={import.meta.env.MIAODA_CLIENT_BASE_PATH || '/'}>
       <ErrorBoundary FallbackComponent={ErrorFallback}>
         <App />

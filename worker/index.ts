@@ -246,6 +246,10 @@ export default {
     try {
       if (new URL(request.url).pathname.startsWith('/api/')) return await api(request, env);
       const response = await env.ASSETS.fetch(request); const headers = new Headers(response.headers);
+      const pathname = new URL(request.url).pathname;
+      if (pathname === '/sw.js' || pathname === '/boot.js' || headers.get('Content-Type')?.includes('text/html')) headers.set('Cache-Control', 'no-cache, max-age=0, must-revalidate');
+      else if (pathname.startsWith('/assets/') && response.ok) headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+      if (pathname === '/sw.js') headers.set('Service-Worker-Allowed', '/');
       headers.set('X-Content-Type-Options', 'nosniff'); headers.set('Referrer-Policy', 'same-origin'); headers.set('X-Frame-Options', 'DENY');
       headers.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
       headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'");

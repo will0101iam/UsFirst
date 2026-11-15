@@ -17,7 +17,9 @@
     "test:api": "node scripts/test-api.mjs",
     "test:recognition-errors": "node scripts/test-recognition-errors.mjs",
     "test:minimum-price": "node scripts/test-minimum-price.mjs",
-    "test:request-form": "node scripts/test-request-form.mjs"
+    "test:request-form": "node scripts/test-request-form.mjs",
+    "test:network-recovery": "node scripts/test-network-recovery.mjs",
+    "test:shell-cache": "node scripts/test-shell-cache.mjs"
   },
   "dependencies": {
     "@formkit/auto-animate": "^0.9.0",

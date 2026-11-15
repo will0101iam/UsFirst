@@ -14,6 +14,8 @@
 - 同源 Worker 图片识别 API，使用 OpenRouter Qwen3.7 Flash，字段证据校验、超时和限流。识别现价、规格价、明确券后价、实付／应付中的最低购买价，支持区间下限与起价，排除划线原价、优惠券金额、分期每期金额、运费和定金；无可信价格留空。最低价仍需核对规格、优惠条件及运费。需要单独配置服务端密钥。
 - 关闭未提交申请后丢弃本次填写、照片和识别状态；再次发起为全新申请。返回图片选择仍保留本次填写；旧异步照片处理和识别结果不会回填新表单。
 - 正式主页没有演示身份、示例申请和重复导航。旧设计源码保留，但生产不注册设计演示路由。
+- 主屏幕启动借鉴 MOJI 的外壳优先：成功安装后从缓存启动完整页面资源，后台检查更新，更新文件必须全部成功且配套才启用；保留前一版供旧标签继续加载，仅清理 UsFirst 自己的缓存。账号、申请 API、照片和所有 POST 不缓存、不离线提交。
+- HTML 有独立启动提示与重试，申请／详情弹窗按需加载；普通读取 10 秒超时、写操作 20 秒、识别 45 秒，不自动重发。恢复网络、返回前台自动重新读取服务器。
 
 ## 部署状态
 
@@ -38,6 +40,8 @@ node scripts/test-recognition.mjs --self-test
 npm run test:minimum-price
 npm run test:request-form
 npm run test:recognition-errors
+npm run test:network-recovery
+npm run build && npm run test:shell-cache
 ```
 
 接口回归只允许 localhost，使用随机测试账号，不写入线上。默认使用仓库内的小尺寸测试照片；也可设 `TEST_PHOTO` 指向一张 JPEG。
