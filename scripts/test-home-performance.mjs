@@ -37,10 +37,14 @@ try {
   assert.equal(calls, 1, 'pageshow and initial mount must share one startup read');
   const requestButton = tree.root.findAllByType('button').find(b => b.props.className === 'new-request');
   await act(async () => requestButton.props.onClick());
+  await act(async () => listeners.get('focus')());
+  assert.equal(tree.root.findByType('test-RequestForm').props.readOnly,true,'相册返回引起的同步不卸载本次表单');
+  await act(async () => resolveRefresh(initial));
+  assert.equal(tree.root.findByType('test-RequestForm').props.readOnly,false);
   let done = false;
   await act(async () => { const form = tree.root.findByType('test-RequestForm'); form.props.onCreate({ title: '确认后的申请', amountCents: 2900, category: '网购', reason: '', photos: [] }).then(() => { done = true; }); });
   assert.equal(done, true, 'confirmed create must not wait for next refresh');
-  assert.ok(globalThis.__toasts.includes('申请已提交')); assert.equal(calls, 2);
+  assert.ok(globalThis.__toasts.includes('申请已提交')); assert.equal(calls, 3);
   assert.equal(tree.root.findByType('test-RequestCard').props.request.title, '确认后的申请');
   await act(async () => resolveRefresh({ ...initial, revision: 'updated', requests: [{ id: 'saved', title: '服务器申请', applicant: 'me', status: 'pending', amountCents: 2900, category: '网购', reason: '', photos: [], createdAt: new Date().toISOString() }] }));
   assert.equal(tree.root.findByType('test-RequestCard').props.request.title, '服务器申请');
@@ -66,5 +70,5 @@ try {
   await act(async () => tree.root.findByType('test-FocusRequest').props.onApprove());
   assert.ok(globalThis.__toasts.includes('已同意购买'));
   assert.equal(tree.root.findAllByType('test-FocusRequest').length, 0, '确认审批后即刻移出待办，不等刷新');
-  console.log(JSON.stringify({ ok: true, checks: 11, scope: 'real HomePage; controlled API result ordering, logout/account isolation, confirmed approval', networkCalls: 0 }));
+  console.log(JSON.stringify({ ok: true, checks: 13, scope: 'real HomePage; controlled API result ordering, logout/account isolation, confirmed approval', networkCalls: 0 }));
 } finally { if (tree) await act(async () => tree.unmount()); }

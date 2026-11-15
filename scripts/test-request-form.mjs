@@ -20,11 +20,11 @@ const result = await build({ entryPoints: ['src/components/RequestForm.tsx'], bu
 const RequestForm = (await import('data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].text).toString('base64'))).default;
 let tree;
 const created = [];
-let open = true;
+let open = true; let readOnly = false;
 let recognize;
 globalThis.__formToasts = [];
 globalThis.__preparePhoto = async file => ({ name: file.name, dataUrl: 'data:image/jpeg;base64,/9j/test' });
-const props = () => ({ open, person: 'me', partnerName: '伙伴', recognize, onClose: () => { open = false; tree.update(React.createElement(RequestForm, props())); }, onCreate: async input => { created.push(input); } });
+const props = () => ({ open, readOnly, person: 'me', partnerName: '伙伴', recognize, onClose: () => { open = false; tree.update(React.createElement(RequestForm, props())); }, onCreate: async input => { created.push(input); } });
 const buttons = text => tree.root.findAllByType('button').find(b => b.children.some(x => x === text));
 async function mount() { open = true; await act(async () => { tree = TestRenderer.create(React.createElement(RequestForm, props())); }); }
 async function reopen() { open = true; await act(async () => tree.update(React.createElement(RequestForm, props()))); }
@@ -84,5 +84,14 @@ await check('关闭识别中的申请，旧识别结果不污染新表单', asyn
   await act(async () => tree.root.findByType('form').props.onSubmit({ preventDefault(){}, persist(){} }));
   assert.equal(created.length, 0); assert.ok(tree.root.findByProps({ id: 'title-error' }));
 });
-console.log(JSON.stringify({ checks: 5, failures, productionRequests: 0, scope: 'real RequestForm and react-hook-form; UI/media adapters isolated' }));
+await check('返回前台同步期间保留本次编辑但禁止提交', async () => {
+  recognize=undefined;await mount();await manual();await type('purchase-title','本次保留');await type('purchase-amount','19.00');
+  readOnly=true;await act(async()=>tree.update(React.createElement(RequestForm,props())));
+  await act(async()=>tree.root.findByType('form').props.onSubmit({preventDefault(){},persist(){}}));
+  assert.equal(created.length,0);assert.equal(globalThis.__formSheet.footer.props.children.props.disabled,true);
+  readOnly=false;await act(async()=>tree.update(React.createElement(RequestForm,props())));
+  await act(async()=>tree.root.findByType('form').props.onSubmit({preventDefault(){},persist(){}}));
+  assert.equal(created[0].title,'本次保留');assert.equal(created[0].amountCents,1900);
+});
+console.log(JSON.stringify({ checks: 6, failures, productionRequests: 0, scope: 'real RequestForm and react-hook-form; UI/media adapters isolated' }));
 if (failures.length) process.exitCode = 1;

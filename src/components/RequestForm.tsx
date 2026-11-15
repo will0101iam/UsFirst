@@ -21,12 +21,12 @@ const schema = z.object({
   category: z.enum(['网购', '外卖', '其他', '']).superRefine((value, context) => { if (value === '') context.addIssue({ code: 'custom', message: '请选择消费类型' }); }), reason: z.string().trim().max(300, '最多 300 个字'),
 });
 type FormValues = z.infer<typeof schema>;
-interface RequestFormProps { open: boolean; person: Person; onClose(): void; onCreate(input: IRequestInput): Promise<void>; recognize?: ImageRecognizer; partnerName?: string }
+interface RequestFormProps { open: boolean; readOnly?: boolean; person: Person; onClose(): void; onCreate(input: IRequestInput): Promise<void>; recognize?: ImageRecognizer; partnerName?: string }
 // Each open is a fresh form session. Returning to image selection stays in this session.
 export default function RequestForm(props: RequestFormProps) {
   return props.open ? <RequestFormSession {...props}/> : null;
 }
-function RequestFormSession({ open, person, onClose, onCreate, recognize, partnerName }: RequestFormProps) {
+function RequestFormSession({ open, readOnly = false, person, onClose, onCreate, recognize, partnerName }: RequestFormProps) {
   const [stage, setStage] = useState<'entry' | 'confirm'>('entry');
   const [photos, setPhotos] = useState<IPicture[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -87,6 +87,7 @@ function RequestFormSession({ open, person, onClose, onCreate, recognize, partne
     finally { if (mounted.current) { setProcessing(false); if (camera.current) camera.current.value = ''; if (gallery.current) gallery.current.value = ''; } }
   }
   async function submit(values: FormValues) {
+    if (readOnly) { toast.error('请先完成同步，再提交申请。'); return; }
     if (!values.category) return;
     const [yuan, decimals = ''] = values.amount.split('.');
     try {
@@ -97,8 +98,9 @@ function RequestFormSession({ open, person, onClose, onCreate, recognize, partne
   function close() { if (!busy) onClose(); }
   function cancelReading() { controller.current?.abort(); setRecognition('failed'); setRecognitionNote('已停止识别，可手动填写。'); }
   return <AppSheet open={open} onClose={close} busy={busy} title={stage === 'entry' ? '这次想买什么？' : '确认这笔申请'} description={stage === 'entry' ? '拍一张或选张截图，再交给对方。' : `核对后交给${partnerName || people[otherPerson(person)]}审批。`} footer={stage === 'confirm' ? <>
-    <Button type="submit" form="purchase-form" className="primary-action press-button" disabled={busy}>{isSubmitting ? <LoaderCircle size={18} className="animate-spin"/> : null}交给对方审批<ArrowRight size={18}/></Button>
+    <Button type="submit" form="purchase-form" className="primary-action press-button" disabled={busy || readOnly}>{isSubmitting ? <LoaderCircle size={18} className="animate-spin"/> : null}交给对方审批<ArrowRight size={18}/></Button>
   </> : undefined}>
+    {readOnly && <p className="connection-error" role="status">正在同步，本次填写会保留；同步后可提交。</p>}
     <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => void addPhotos(e.target.files)}/>
     <input ref={gallery} type="file" accept="image/*" multiple className="hidden" onChange={e => void addPhotos(e.target.files)}/>
     {stage === 'entry' ? <div className="capture-entry"><div className="capture-options"><button onClick={() => camera.current?.click()} disabled={busy}><Camera size={28} strokeWidth={1.6}/><strong>拍照</strong><span>拍下想买的东西</span></button><button onClick={() => gallery.current?.click()} disabled={busy}><ImagePlus size={28} strokeWidth={1.6}/><strong>上传图片</strong><span>商品、购物车或订单截图</span></button></div>
