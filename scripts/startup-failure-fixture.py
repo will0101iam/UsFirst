@@ -27,7 +27,7 @@ class Handler(BaseHTTPRequestHandler):
   if file.suffix=='.html':
    mode=query.get('mode',['blocked'])[0];snapshot['savedAt']=int(time.time()*1000)
    seed="localStorage.removeItem('usfirst:snapshot:v1');localStorage.removeItem('usfirst:snapshot-generation:v1');"
-   if mode in ['blocked','healthy']:seed+="localStorage.setItem('usfirst:snapshot:v1',"+json.dumps(json.dumps(snapshot))+");"
+   if mode in ['blocked','healthy','stream']:seed+="localStorage.setItem('usfirst:snapshot:v1',"+json.dumps(json.dumps(snapshot))+");"
    html=body.decode().replace('<head>','<head><script>'+seed+'</script>')
    if mode not in ['api','healthy']:html=re.sub(r'(<script\b[^>]*type="module"[^>]*src=")[^"]+',r'\1/blocked-entry.js',html)
    if 'standalone' in query:html=html.replace('(display-mode:standalone)','(min-width:0px)').replace('(display-mode: standalone)','(min-width:0px)')
@@ -35,7 +35,12 @@ class Handler(BaseHTTPRequestHandler):
    policy="default-src 'self';script-src 'self' "+' '.join("'sha256-"+base64.b64encode(hashlib.sha256(s.encode()).digest()).decode()+"'" for s in scripts)+";style-src 'self' 'unsafe-inline';connect-src 'self';img-src 'self' data: blob:"
   self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store')
   if policy:self.send_header('Content-Security-Policy',policy)
-  self.end_headers();self.wfile.write(body)
+  self.end_headers()
+  try:
+   if file.suffix=='.html' and query.get('mode',[''])[0]=='stream':
+    end=body.index(b'</script>',body.index(b'<script data-usfirst-boot>'))+len(b'</script>');self.wfile.write(body[:end]);self.wfile.flush();time.sleep(20);self.wfile.write(body[end:])
+   else:self.wfile.write(body)
+  except(BrokenPipeError,ConnectionResetError):pass
 server=ThreadingHTTPServer(('127.0.0.1',32933),Handler)
 print('Startup failure fixture http://127.0.0.1:32933/?mode=blocked&standalone=1; synthetic only',flush=True)
 server.serve_forever()

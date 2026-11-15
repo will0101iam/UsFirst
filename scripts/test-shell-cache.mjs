@@ -12,12 +12,13 @@ class MemoryCaches {
   async keys() { return [...this.stores.keys()]; }
   async delete(name) { return this.stores.delete(name); }
 }
-const caches = new MemoryCaches(); let offline = false; let invalid = ''; let calls = 0; let skipped = 0; let claimed = 0;
+const caches = new MemoryCaches(); let slowResponse; let offline = false; let invalid = ''; let calls = 0; let skipped = 0; let claimed = 0;
 const html = await readFile('dist/index.html', 'utf8');
 function instance(script) {
   const events = {};
-  const context = vm.createContext({ URL, Request, Response, Headers, AbortController, setTimeout, clearTimeout, caches, fetch: async url => {
+  const context = vm.createContext({ URL, Request, Response, Headers, ReadableStream, AbortController, setTimeout, clearTimeout, caches, fetch: async url => {
     calls++;
+    if (slowResponse) return slowResponse;
     if (offline) throw new TypeError('offline');
     const path = new URL(typeof url === 'string' ? url : url.url).pathname;
     if (invalid === path) return new Response('<html>error</html>', { headers: { 'content-type': 'text/html' } });
@@ -86,4 +87,9 @@ assert.equal((await request(events,'/','navigate')).status,200,'cache failure mu
 offline=true;
 const recovered=await request(events,'/','navigate');assert.equal(recovered.status,200);assert.ok((await recovered.text()).includes('一起花'),'offline cache failure shows self-contained recovery page');
 caches.open=savedOpen;
-console.log(JSON.stringify({ ok: true, checks: 19, scope: 'real built SW; core-only install, optional lazy failure/runtime caching, no private data', networkCalls: 0 }));
+let finishStream;slowResponse=new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('<!doctype html><p>一起花先显示</p>'));finishStream=()=>controller.close();}}),{headers:{'Content-Type':'text/html'}});
+let streamed;const inFlight=request(events,'/?__usfirst_reload=stream','navigate').then(response=>{streamed=response});
+for(let i=0;i<30;i++)await Promise.resolve();
+try{assert.ok(streamed,'navigation must return response before stalled body completes, not buffer whole HTML');}finally{finishStream();await inFlight;slowResponse=null;}
+assert.ok((await streamed.text()).includes('先显示'));
+console.log(JSON.stringify({ ok: true, checks: 21, scope: 'real built SW; core-only install, optional lazy failure/runtime caching, no private data', networkCalls: 0 }));

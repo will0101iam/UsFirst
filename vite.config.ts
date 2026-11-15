@@ -31,7 +31,14 @@ export default defineConfig({
       html = html.replace(/<script\b[^>]*src="\/boot.js"[^>]*><\/script>/g, () => `<script data-usfirst-boot>${boot}</script>`);
       const required: string[] = [];
       for (const match of html.matchAll(/<script\b[^>]*src="(\/assets\/[^\"]+)"[^>]*><\/script>/g)) required.push('.' + match[1]);
-      html = html.replace(/<link\b[^>]*rel="stylesheet"[^>]*href="(\/assets\/[^\"]+)"[^>]*>/g, (_tag, file: string) => `<style>${readFileSync(path.join(output, file), 'utf8')}</style>`);
+      // The small recovery DOM + boot must arrive before the large CSS and deferred entry.
+      // Head-inline full CSS previously kept the parser in <head> on stalled HTML transfers.
+      const styles: string[] = [];
+      html = html.replace(/<link\b[^>]*rel="stylesheet"[^>]*href="(\/assets\/[^\"]+)"[^>]*>/g, (_tag, file: string) => { styles.push(`<style>${readFileSync(path.join(output, file), 'utf8')}</style>`); return ''; });
+      const entries: string[] = [];
+      html = html.replace(/<script\b[^>]*type="module"[^>]*src="[^\"]+"[^>]*><\/script>/g, tag => { entries.push(tag); return ''; });
+      const bootEnd = html.indexOf('</script>', html.indexOf('<script data-usfirst-boot>')) + '</script>'.length;
+      html = html.slice(0, bootEnd) + '\n' + styles.join('\n') + '\n' + entries.join('\n') + html.slice(bootEnd);
       const assets = [...readdirSync(path.join(output, 'assets')).map(name => './assets/' + name), './boot.js', './manifest.webmanifest', './app-icon-192.png', './app-icon-512.png', './app-icon.svg'];
       const scriptHash = createHash('sha256').update(boot).digest('base64');
       const policy = `default-src 'self'; script-src 'self' 'sha256-${scriptHash}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'`;
@@ -42,7 +49,10 @@ export default defineConfig({
       const template = readFileSync(path.resolve(import.meta.dirname, 'scripts/service-worker-template.js'), 'utf8');
       hash.update(template);
       const version = hash.digest('hex').slice(0, 16);
-      writeFileSync(indexPath, html.replace('</head>', `<meta name="usfirst-build" content="${version}" /></head>`));
+      const versionedHtml = html.replace('</head>', `<meta name="usfirst-build" content="${version}" /></head>`);
+      writeFileSync(indexPath, versionedHtml);
+      // Dedicated recovery URL bypasses older SW versions that intercept only / and /index.html.
+      writeFileSync(path.join(output, 'recover.html'), versionedHtml);
       writeFileSync(path.join(output, 'sw.js'), template.replace('__SHELL_VERSION__', JSON.stringify(version)).replace('__SHELL_ASSETS__', JSON.stringify(assets)).replace('__SHELL_REQUIRED__', JSON.stringify(required)));
       // Preserve precisely the immediately previous build's chunks for active old tabs.
       // Do not include them in current ASSETS/hash or retention would accumulate indefinitely.

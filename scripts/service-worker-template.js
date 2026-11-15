@@ -77,9 +77,29 @@ self.addEventListener('notificationclick', event => {
   })());
 });
 
+async function navigationFetch(url, fresh) {
+  // Unlike immutable assets/install, navigation must stream its first bytes immediately.
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 30000);
+  try {
+    const response = await fetch(url, { cache:fresh ? 'no-store' : 'default', signal:abort.signal });
+    if (!response.ok || !/text\/html/.test(response.headers.get('content-type') || '')) { clearTimeout(timer); await response.body?.cancel(); throw new Error('Invalid navigation'); }
+    if (!response.body) { clearTimeout(timer); return response; }
+    const reader = response.body.getReader();
+    const stream = new ReadableStream({
+      async pull(controller) {
+        try { const {done,value} = await reader.read(); if (done) { clearTimeout(timer); controller.close(); } else controller.enqueue(value); }
+        catch(error) { clearTimeout(timer); controller.error(error); }
+      },
+      cancel(reason) { clearTimeout(timer); abort.abort(); return reader.cancel(reason); },
+    });
+    const headers = new Headers(response.headers); headers.delete('content-encoding'); headers.delete('content-length');
+    return new Response(stream, {status:response.status,headers});
+  } catch(error) { clearTimeout(timer); throw error; }
+}
 function recoveryPage() {
   // Available even if browser evicted every shell cache and the network is unavailable.
-  const html = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#551e42"><title>一起花</title><style>html,body{margin:0;background:#551e42;color:#fff2fa;font-family:-apple-system,sans-serif}main{padding:calc(32px + env(safe-area-inset-top)) 24px;line-height:1.8}h1{font-size:24px}a{display:inline-block;padding:12px 24px;border-radius:18px;background:#d6f56a;color:#2c3317;text-decoration:none}p{color:#efc9dd}</style><main><h1>一起花.</h1><h2>暂时无法加载页面</h2><p>页面资源暂不可用，请联网后重新打开。服务器上的申请记录不会被删除。</p><a href="/">重新打开</a></main></html>';
+  const html = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#551e42"><title>一起花</title><style>html,body{margin:0;background:#551e42;color:#fff2fa;font-family:-apple-system,sans-serif}main{padding:calc(32px + env(safe-area-inset-top)) 24px;line-height:1.8}h1{font-size:24px}a{display:inline-block;padding:12px 24px;border-radius:18px;background:#d6f56a;color:#2c3317;text-decoration:none}p{color:#efc9dd}</style><main><h1>一起花.</h1><h2>暂时无法加载页面</h2><p>页面资源暂不可用，请联网后重新打开。服务器上的申请记录不会被删除。</p><a href="/recover.html">重新打开</a></main></html>';
   return new Response(html, { headers: { 'Content-Type':'text/html; charset=utf-8', 'Cache-Control':'no-store', 'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" } });
 }
 self.addEventListener('fetch', event => {
@@ -102,7 +122,7 @@ self.addEventListener('fetch', event => {
     } catch { /* Cache read failure is not a network failure. Continue online. */ }
     if (cached && !freshNavigation) return cached;
     try {
-      const response = await fetchBounded(freshNavigation ? SHELL_URL : request.url, freshNavigation);
+      const response = navigation ? await navigationFetch(freshNavigation ? SHELL_URL : request.url, freshNavigation) : await fetchBounded(request.url);
       if (navigation && (!response.ok || !/text\/html/.test(response.headers.get('content-type') || ''))) throw new Error('Invalid navigation');
       if (cache && assetUrls.includes(url.href) && valid(response, url.pathname)) {
         try { await cache.put(url.href, response.clone()); } catch { /* A successful network response is still usable. */ }

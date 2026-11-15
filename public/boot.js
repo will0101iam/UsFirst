@@ -1,5 +1,6 @@
 // Run before the main application: shell recovery must not depend on its bundle.
 (function () {
+  if (location.pathname === '/recover.html' && typeof history !== 'undefined') history.replaceState(null, '', '/' + location.search + location.hash);
   var boot = document.getElementById('boot-shell');
   var status = document.getElementById('boot-status');
   var retry = document.getElementById('boot-retry');
