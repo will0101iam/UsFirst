@@ -11,8 +11,9 @@ const SettingsSheet = lazy(() => import('@/components/SettingsSheet'));
 const RejectSheet = lazy(() => import('@/components/RejectSheet'));
 const PhotoViewer = lazy(() => import('@/components/PhotoViewer'));
 import { api, ApiError, getBootstrap, clearStartupPrefetch, createRequest as sendRequest, updateRequest as sendUpdate, recognizePhotos } from '@/lib/api';
+import { mergeRequests } from '@/lib/request-sync';
 import { readHomeSnapshot, saveHomeSnapshot, clearHomeSnapshot, snapshotGeneration, snapshotGenerationKey } from '@/lib/home-snapshot';
-import type { SessionState } from '@/lib/api';
+import type { SessionState, RequestPage } from '@/lib/api';
 import type { IRequest, IRequestInput, Status } from '@/lib/oa-types';
 import './home.css';
 import './c3.css';
@@ -29,8 +30,12 @@ export default function HomePage() {
   const [rejectId, setRejectId] = useState<string | null>(null); const [photo, setPhoto] = useState<{ photos: IRequest['photos']; index: number } | null>(null);
   const [busy, setBusy] = useState(false); const refreshRunning = useRef(false); const sessionEpoch = useRef(0); const actionRunning = useRef(false); const draftId = useRef(crypto.randomUUID());
   const revision = useRef(''); const suppressRefresh = useRef(snapshotGeneration().startsWith('logout:')); const refreshPending = useRef(false); const lastRefresh = useRef(0);
+  const [historyPages, setHistoryPages] = useState<Record<string, { cursor: string | null }>>({});
+  const historyRunning = useRef(false); const [historyBusy, setHistoryBusy] = useState(false); const [historyError, setHistoryError] = useState('');
+  const publishRequests = useCallback((next: IRequest[]) => { requestState.current = next; setRequests(next); }, []);
   const refresh = useCallback(async function refreshNow(silent = false) {
-    if (suppressRefresh.current) return;
+    if (suppressRefresh.current || document.hidden) return;
+    if (historyRunning.current) { refreshPending.current = true; return; }
     if (refreshRunning.current) { if (!silent) refreshPending.current = true; return; }
     if (silent && Date.now() - lastRefresh.current < 4000) return;
     refreshRunning.current = true; const epoch = sessionEpoch.current; const generation = snapshotGeneration();
@@ -39,8 +44,12 @@ export default function HomePage() {
       if (epoch !== sessionEpoch.current || generation !== snapshotGeneration()) return;
       revision.current = next.revision;
       setSession(next.session);
-      if (next.requests !== null) { requestState.current = next.requests; setRequests(next.requests); }
-      if (!next.session.user || !next.session.pair) { requestState.current = []; setRequests([]); clearHomeSnapshot('invalid'); setSavedAt(0); }
+      if (next.requests !== null) {
+        const rows = next.mode === 'delta' ? mergeRequests(requestState.current,next.requests,next.removed) : mergeRequests([],next.requests);
+        requestState.current = rows; setRequests(rows);
+        if (next.mode === 'reset' || !next.mode) setHistoryPages({});
+      }
+      if (!next.session.user || !next.session.pair) { requestState.current = []; setRequests([]); setHistoryPages({}); clearHomeSnapshot('invalid'); setSavedAt(0); }
       else { saveHomeSnapshot(next.session, requestState.current, generation); setSavedAt(Date.now()); }
       verifiedGeneration.current = snapshotGeneration();
       verifiedRef.current = !document.hidden && (typeof navigator === 'undefined' || navigator.onLine !== false); setVerified(verifiedRef.current);
@@ -53,19 +62,21 @@ export default function HomePage() {
     } finally {
       setLoading(false); refreshRunning.current = false; lastRefresh.current = Date.now();
       window.dispatchEvent(new Event('usfirst:connected'));
-      if (refreshPending.current) { refreshPending.current = false; window.setTimeout(() => void refreshNow(), 0); }
+      if (refreshPending.current && !document.hidden) { refreshPending.current = false; window.setTimeout(() => void refreshNow(), 0); }
     }
   }, []);
   useEffect(() => {
     const initial = window.setTimeout(() => void refresh(true), 0);
     const interval = window.setInterval(() => { if (!document.hidden) void refresh(true); }, 8000);
-    const pause = () => { verifiedRef.current = false; setVerified(false); setRejectId(null); };
+    const pause = () => { verifiedRef.current = false; setVerified(false); setRejectId(null); refreshPending.current = false; };
     const resume = () => { if (!document.hidden) { pause(); lastRefresh.current = 0; void refresh(true); } };
     const online = () => { if (!document.hidden) { pause(); void refresh(); } };
     const visible = () => { if (document.hidden) pause(); else resume(); };
-    const storage = (event: StorageEvent) => { if (event.key === snapshotGenerationKey || event.key === null) { suppressRefresh.current = event.key === null || !!event.newValue?.startsWith('logout:'); sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); pause(); setFormOpen(false); setSession(null); setRequests([]); requestState.current = []; setSettingsOpen(false); setSelectedId(null); setPhoto(null); setSavedAt(0); void refresh(); } };
+    const storage = (event: StorageEvent) => { if (event.key === snapshotGenerationKey || event.key === null) { suppressRefresh.current = event.key === null || !!event.newValue?.startsWith('logout:'); sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); pause(); setFormOpen(false); setSession(null); setRequests([]); requestState.current = []; setHistoryPages({}); setSettingsOpen(false); setSelectedId(null); setPhoto(null); setSavedAt(0); void refresh(); } };
+    const syncHint = (event: MessageEvent) => { if (event.data?.type === 'usfirst:sync-hint' && !document.hidden) void refresh(true); };
+    if (typeof navigator !== 'undefined') navigator.serviceWorker?.addEventListener('message', syncHint);
     window.addEventListener('focus', resume); window.addEventListener('online', online); window.addEventListener('offline', pause); window.addEventListener('pageshow', resume); window.addEventListener('storage', storage); document.addEventListener('visibilitychange', visible);
-    return () => { clearTimeout(initial); clearInterval(interval); window.removeEventListener('focus', resume); window.removeEventListener('online', online); window.removeEventListener('offline', pause); window.removeEventListener('pageshow', resume); window.removeEventListener('storage', storage); document.removeEventListener('visibilitychange', visible); };
+    return () => { if (typeof navigator !== 'undefined') navigator.serviceWorker?.removeEventListener('message', syncHint); clearTimeout(initial); clearInterval(interval); window.removeEventListener('focus', resume); window.removeEventListener('online', online); window.removeEventListener('offline', pause); window.removeEventListener('pageshow', resume); window.removeEventListener('storage', storage); document.removeEventListener('visibilitychange', visible); };
   }, [refresh]);
   const deepLinkRunning = useRef('');
   const [deepLink, setDeepLink] = useState(() => typeof window.location?.hash === 'string' ? window.location.hash : '');
@@ -84,38 +95,67 @@ export default function HomePage() {
     setSettingsOpen(false); setRejectId(null); setPhoto(null);
     void api<{ request: IRequest }>(`/requests/${id}`).then(result => {
       if (!active || epoch !== sessionEpoch.current || generation !== snapshotGeneration()) return;
-      setRequests(previous => [result.request, ...previous.filter(row => row.id !== id)]);
+      publishRequests(mergeRequests(requestState.current,[result.request]));
       setView(result.request.applicant === 'me' ? 'mine' : 'inbox'); setFilter('all'); setSelectedId(id);
       setDeepLink(''); window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }).catch(error => { if (active && epoch === sessionEpoch.current && generation === snapshotGeneration()) { toast.error(error instanceof Error ? error.message : '申请暂时无法打开'); setDeepLink(''); } }).finally(() => { if (deepLinkRunning.current === id) deepLinkRunning.current = ''; });
     return () => { active = false; deepLinkRunning.current = ''; };
-  }, [deepLink, verified, notificationAccount, notificationPaired]);
+  }, [deepLink, verified, notificationAccount, notificationPaired, publishRequests]);
   const writable = () => verifiedRef.current && verifiedGeneration.current === snapshotGeneration() && !document.hidden && (typeof navigator === 'undefined' || navigator.onLine !== false);
   const readOnly = !verified;
   async function create(input: IRequestInput) {
     if (!writable()) throw new Error('正在确认最新数据，请同步完成后再提交。');
     const epoch = sessionEpoch.current; const generation = snapshotGeneration();
     const id = draftId.current;
-    await sendRequest(input, id); if (epoch !== sessionEpoch.current || generation !== snapshotGeneration()) return; draftId.current = crypto.randomUUID();
-    sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot(); verifiedGeneration.current = snapshotGeneration();
-    setRequests(previous => [{ ...input, id, applicant: 'me', status: 'pending', createdAt: new Date().toISOString() }, ...previous.filter(row => row.id !== id)]);
-    setView('mine'); setFilter('pending'); toast.success('申请已提交'); void refresh();
+    const result = await sendRequest(input, id); if (epoch !== sessionEpoch.current || generation !== snapshotGeneration()) return; draftId.current = crypto.randomUUID();
+    sessionEpoch.current++; clearStartupPrefetch(); clearHomeSnapshot(); verifiedGeneration.current = snapshotGeneration();
+    publishRequests(mergeRequests(requestState.current,[result.request]));
+    saveHomeSnapshot(session!,requestState.current,verifiedGeneration.current); setSavedAt(Date.now());
+    setView('mine'); setFilter('pending'); toast.success('申请已提交');
   }
   async function update(id: string, status: Status, note = '') {
     if (!writable()) { toast.error('请先同步最新数据，再操作。'); return; }
     const epoch = sessionEpoch.current; const generation = snapshotGeneration();
     if (actionRunning.current) return; actionRunning.current = true; setBusy(true);
-    try { await sendUpdate(id, status, note); if (epoch !== sessionEpoch.current || generation !== snapshotGeneration()) return; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot(); verifiedGeneration.current = snapshotGeneration(); setRequests(previous => previous.map(row => row.id === id ? { ...row, status, decisionNote: note || row.decisionNote } : row)); setSelectedId(null); setRejectId(null); toast.success(status === 'approved' ? '已同意购买' : status === 'rejected' ? '已记录，这次先不买' : status === 'purchased' ? '已标记购买' : '申请已撤回'); void refresh(); }
+    try {
+      const result = await sendUpdate(id, status, note); if (epoch !== sessionEpoch.current || generation !== snapshotGeneration()) return;
+      sessionEpoch.current++; clearStartupPrefetch(); clearHomeSnapshot(); verifiedGeneration.current = snapshotGeneration();
+      publishRequests(mergeRequests(requestState.current,[result.request]));
+      saveHomeSnapshot(session!,requestState.current,verifiedGeneration.current); setSavedAt(Date.now());
+      setSelectedId(null); setRejectId(null); toast.success(status === 'approved' ? '已同意购买' : status === 'rejected' ? '已记录，这次先不买' : status === 'purchased' ? '已标记购买' : '申请已撤回');
+    }
     catch (error) { if (epoch !== sessionEpoch.current || generation !== snapshotGeneration()) return; toast.error(error instanceof Error ? error.message : '操作失败'); await refresh(true); }
     finally { actionRunning.current = false; setBusy(false); }
   }
   async function logout() {
-    suppressRefresh.current = true; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot('logout'); verifiedRef.current = false; setVerified(false); setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); requestState.current = []; setSavedAt(0); setSettingsOpen(false); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); setLoading(false); draftId.current = crypto.randomUUID();
+    suppressRefresh.current = true; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot('logout'); verifiedRef.current = false; setVerified(false); setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); requestState.current = []; setHistoryPages({}); setSavedAt(0); setSettingsOpen(false); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); setLoading(false); draftId.current = crypto.randomUUID();
     const cleanup = import('@/lib/push-notifications').then(module => module.stopDevicePush()).catch(() => { toast.error('本设备通知关闭未确认，可在系统设置中关闭一起花通知。'); });
     try { await api('/auth/logout', {}); } catch { toast.error('本机快照已清除，但服务器退出未确认，请联网后再退出。'); }
     await cleanup;
   }
-  function authenticated(next: SessionState) { suppressRefresh.current = false; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot(); verifiedRef.current = false; setVerified(false); draftId.current = crypto.randomUUID(); requestState.current = []; setRequests([]); setSavedAt(0); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); setSession(next); void refresh(); }
+  function authenticated(next: SessionState) { suppressRefresh.current = false; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot(); verifiedRef.current = false; setVerified(false); draftId.current = crypto.randomUUID(); requestState.current = []; setHistoryPages({}); setRequests([]); setSavedAt(0); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); setSession(next); void refresh(); }
+  const pageKey = view + ':' + filter;
+  const page = historyPages[pageKey];
+  async function loadHistory() {
+    if (!writable() || historyRunning.current || refreshRunning.current || page?.cursor === null) return;
+    historyRunning.current = true; setHistoryBusy(true); setHistoryError('');
+    const epoch = sessionEpoch.current, generation = snapshotGeneration(), atRevision = revision.current;
+    try {
+      let result = await api<RequestPage>(`/requests/page?view=${view}&filter=${filter}${page?.cursor ? '&cursor=' + encodeURIComponent(page.cursor) : ''}`);
+      if (epoch !== sessionEpoch.current || generation !== snapshotGeneration() || atRevision !== revision.current) return;
+      // The initial page may already be in the startup batch. One click should reveal older rows,
+      // not require a second tap to get past an entirely duplicate first page.
+      if (!page && result.cursor && result.requests.every(row => requestState.current.some(known => known.id === row.id))) {
+        const first = result;
+        result = await api<RequestPage>(`/requests/page?view=${view}&filter=${filter}&cursor=${encodeURIComponent(first.cursor!)}`);
+        if (epoch !== sessionEpoch.current || generation !== snapshotGeneration() || atRevision !== revision.current) return;
+        result = { ...result, requests: mergeRequests(first.requests,result.requests) };
+      }
+      publishRequests(mergeRequests(requestState.current,result.requests));
+      setHistoryPages(previous => ({ ...previous, [pageKey]: { cursor: result.cursor } }));
+    } catch (error) { if (epoch === sessionEpoch.current && generation === snapshotGeneration()) setHistoryError(error instanceof Error ? error.message : '记录暂时无法加载'); }
+    finally { historyRunning.current = false; setHistoryBusy(false); if (refreshPending.current && !document.hidden) { refreshPending.current = false; void refresh(); } }
+  }
   const selected = requests.find(request => request.id === selectedId); const rejecting = requests.find(request => request.id === rejectId);
   const waiting = requests.filter(request => request.applicant === 'partner' && request.status === 'pending');
   const displayed = requests.filter(request => (view === 'mine' ? request.applicant === 'me' : request.applicant === 'partner') && (filter === 'all' || (filter === 'closed' ? ['rejected', 'cancelled', 'purchased'].includes(request.status) : request.status === filter)));
@@ -124,9 +164,12 @@ export default function HomePage() {
     {loading ? <div className="loading-state"><LoaderCircle size={25} className="animate-spin"/><p>正在连接…</p></div> : connectionError && !session ? <div className="empty-state"><h2>暂时无法连接</h2><p role="alert">{connectionError}</p><button className="empty-create" onClick={() => void refresh()}><RefreshCw size={17}/>重试</button></div> : !session?.user ? <AuthPanel onSession={authenticated}/> : !session.pair ? <PairPanel onSession={authenticated}/> : <>
     {!verified && session?.pair && <button className="snapshot-status" onClick={() => void refresh()} role="status">{connectionError ? `${connectionError} · 重试` : savedAt ? '上次同步的记录 · 正在更新，仅可查看' : '正在确认最新数据，仅可查看'}</button>}
     {verified && connectionError && <button className="connection-error" onClick={() => void refresh()}>{connectionError} · 重试</button>}
-    <section className="workspace"><header className="workspace-heading"><div><h1>{view === 'inbox' ? '待我决定' : '我的申请'}</h1>{waiting.length > 0 && view === 'inbox' && filter === 'pending' && <p>{waiting.length} 笔待审批</p>}</div>{view === 'inbox' && <button className={`history-toggle ${filter === 'all' ? 'selected' : ''}`} aria-pressed={filter === 'all'} onClick={() => setFilter(filter === 'all' ? 'pending' : 'all')}>{filter === 'all' ? '返回待办' : '历史'}</button>}</header>
+    <section className="workspace"><header className="workspace-heading"><div><h1>{view === 'inbox' ? '待我决定' : '我的申请'}</h1>{waiting.length > 0 && view === 'inbox' && filter === 'pending' && <p>待审批</p>}</div>{view === 'inbox' && <button className={`history-toggle ${filter === 'all' ? 'selected' : ''}`} aria-pressed={filter === 'all'} onClick={() => setFilter(filter === 'all' ? 'pending' : 'all')}>{filter === 'all' ? '返回待办' : '历史'}</button>}</header>
     {view === 'mine' && <div className="status-filters">{filters.map(item => <button key={item.id} className={filter === item.id ? 'active' : ''} aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}</div>}
-    <div className="request-list">{displayed.length ? focused ? <FocusRequest request={focused} onOpen={() => setSelectedId(focused.id)} onApprove={() => void update(focused.id, 'approved')} onReject={() => { if (writable()) setRejectId(focused.id); }} onPhoto={() => setPhoto({ photos: focused.photos, index: 0 })} busy={busy} readOnly={readOnly} applicantName={session.pair.partnerName}/> : displayed.map(request => <RequestCard key={request.id} request={request} readOnly={readOnly} applicantName={request.applicant === 'me' ? '我' : session.pair.partnerName} onOpen={() => setSelectedId(request.id)}/>) : <div className="empty-state"><span className="empty-check"><Check size={25}/></span><h2>{view === 'inbox' ? filter === 'all' ? '还没有审批记录' : '没有待审批的申请' : '这里还没有申请'}</h2>{view === 'mine' && <button className="empty-create" onClick={() => { if (writable()) setFormOpen(true); }} disabled={readOnly}>申请一笔<Plus size={16}/></button>}</div>}</div></section>
+    <div className="request-list">{displayed.length ? focused ? <FocusRequest request={focused} onOpen={() => setSelectedId(focused.id)} onApprove={() => void update(focused.id, 'approved')} onReject={() => { if (writable()) setRejectId(focused.id); }} onPhoto={() => setPhoto({ photos: focused.photos, index: 0 })} busy={busy} readOnly={readOnly} applicantName={session.pair.partnerName}/> : displayed.map(request => <RequestCard key={request.id} request={request} readOnly={readOnly} applicantName={request.applicant === 'me' ? '我' : session.pair.partnerName} onOpen={() => setSelectedId(request.id)}/>) : <div className="empty-state"><span className="empty-check"><Check size={25}/></span><h2>{!page ? '暂无近期记录' : view === 'inbox' ? filter === 'all' ? '还没有审批记录' : '没有待审批的申请' : '这里还没有申请'}</h2>{view === 'mine' && <button className="empty-create" onClick={() => { if (writable()) setFormOpen(true); }} disabled={readOnly}>申请一笔<Plus size={16}/></button>}</div>}</div>
+    {verified && page?.cursor !== null && <button className="history-toggle load-more" disabled={historyBusy} onClick={() => void loadHistory()}>{historyBusy ? '正在加载…' : historyError ? '加载失败，重试' : filter === 'pending' ? '查看更多待审批' : '查看更多记录'}</button>}
+    {historyError && <p className="connection-error" role="alert">{historyError}</p>}
+    </section>
     </>}
     </div>
     {!loading && session?.user && session.pair && <>

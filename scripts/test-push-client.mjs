@@ -19,11 +19,11 @@ try {
  calls.length=0;permission='denied';await assert.rejects(mod.enablePush(),/未获得/);assert.equal(calls.length,1);
  calls.length=0;permission='granted';let valid=true;Notification.requestPermission=()=>{calls.push(['permission']);valid=false;return Promise.resolve('granted')};await assert.rejects(mod.enablePush(()=>valid),/账号/);assert.equal(calls.length,1,'account change stops network subscription');
  Notification.requestPermission=()=>Promise.resolve('granted');networkFailure=true;await assert.rejects(mod.enablePush(),/网络/);assert.ok(sub,'uncertain server POST preserves device subscription for status check');networkFailure=false;await mod.stopDevicePush();assert.equal(sub,null);
- const events={},notifications=[],opened=[];const cacheCalls=[];
+ const events={},notifications=[],opened=[],hints=[];const cacheCalls=[];
  const script=await readFile('dist/sw.js','utf8');
- vm.runInNewContext(script,{URL,Request,Response,Headers,AbortController,setTimeout,clearTimeout,caches:{open:async()=>{cacheCalls.push(1)}},self:{registration:{scope:'https://usfirst.example/',showNotification:async(title,options)=>notifications.push({title,options})},location:{origin:'https://usfirst.example'},clients:{matchAll:async()=>[],openWindow:async url=>opened.push(url)},addEventListener:(n,f)=>events[n]=f}});
+ vm.runInNewContext(script,{URL,Request,Response,Headers,AbortController,setTimeout,clearTimeout,caches:{open:async()=>{cacheCalls.push(1)}},self:{registration:{scope:'https://usfirst.example/',showNotification:async(title,options)=>notifications.push({title,options})},location:{origin:'https://usfirst.example'},clients:{matchAll:async()=>[{url:'https://usfirst.example/not-a-home',postMessage:message=>hints.push(message)}],openWindow:async url=>opened.push(url)},addEventListener:(n,f)=>events[n]=f}});
  const id='fa48d670-abcd-4ec2-82e9-b1a0b6f49d78';let pending;
- events.push({data:{json:()=>({requestId:id,body:'恶意私密文案'})},waitUntil:p=>pending=p});await pending;assert.equal(notifications[0].options.body,'你的申请有了审批结果，点开查看。');assert.deepEqual(cacheCalls,[]);
+ events.push({data:{json:()=>({requestId:id,body:'恶意私密文案'})},waitUntil:p=>pending=p});await pending;assert.equal(notifications[0].options.body,'你的申请有了审批结果，点开查看。');assert.deepEqual(cacheCalls,[]);assert.equal(hints[0].type,'usfirst:sync-hint');assert.deepEqual(Object.keys(hints[0]),['type'],'hint carries no business data');
  events.notificationclick({notification:{data:{requestId:id},close(){}},waitUntil:p=>pending=p});await pending;assert.equal(opened[0],'https://usfirst.example/#request='+id);
  events.notificationclick({notification:{data:{requestId:'https://evil.example'},close(){}},waitUntil:p=>pending=p});assert.equal(opened.length,1);
  let focus=0,navigate='';events.push({data:{json:()=>({requestId:id,body:'收到一笔新申请，点开查看。'})},waitUntil:p=>pending=p});await pending;assert.equal(notifications[1].options.body,'收到一笔新申请，点开查看。');

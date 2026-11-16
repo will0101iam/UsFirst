@@ -62,6 +62,9 @@ self.addEventListener('push', event => {
       icon: '/app-icon-192.png', badge: '/app-icon-192.png', tag: 'usfirst-' + data.requestId,
       data: { requestId: data.requestId },
     });
+    // Hint only: visible clients reauthenticate and fetch authoritative data themselves.
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of windows) if (new URL(client.url).origin === self.location.origin && typeof client.postMessage === 'function') client.postMessage({ type: 'usfirst:sync-hint' });
   })());
 });
 self.addEventListener('notificationclick', event => {

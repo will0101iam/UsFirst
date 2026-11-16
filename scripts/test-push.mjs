@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { build } from 'esbuild';
 const dir = mkdtempSync(join(tmpdir(), 'usfirst-push-test-'));
 const db = new DatabaseSync(join(dir, 'test.sqlite'));
-for (const file of ['0001_initial.sql','0002_push_subscriptions.sql']) db.exec(readFileSync('migrations/'+file,'utf8'));
+for (const file of ['0001_initial.sql','0002_push_subscriptions.sql','0003_lightweight_sync.sql']) db.exec(readFileSync('migrations/'+file,'utf8'));
 function statement(sql, args=[]) { return { bind(...v){return statement(sql,v)}, async first(){return db.prepare(sql).get(...args)||null}, async all(){return {results:db.prepare(sql).all(...args)}}, async run(){return {meta:{changes:Number(db.prepare(sql).run(...args).changes)}}} }; }
 const DB = {prepare:statement, async batch(items){db.exec('BEGIN');try { const out=[];for(const s of items)out.push(await s.run());db.exec('COMMIT');return out;}catch(e){db.exec('ROLLBACK');throw e}}};
 const built = await build({entryPoints:['worker/index.ts'],bundle:true,write:false,format:'esm',platform:'browser',target:'es2023'});

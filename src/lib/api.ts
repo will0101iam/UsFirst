@@ -1,7 +1,9 @@
 import type { IRequest, IRequestInput, Status } from './oa-types';
 import type { ImageRecognizer } from './image-recognition-contract';
 export interface SessionState { user: { username: string; displayName: string } | null; pair: { partnerName: string } | null; recognitionAvailable: boolean }
-export interface BootstrapState { session: SessionState; requests: IRequest[] | null; revision: string }
+export interface BootstrapState { session: SessionState; requests: IRequest[] | null; revision: string; mode?: 'reset' | 'delta' | 'unchanged'; removed?: string[] }
+export interface RequestConfirmation { ok: true; request: IRequest; id?: string }
+export interface RequestPage { requests: IRequest[]; cursor: string | null }
 declare global { interface Window { __usfirstStartup?: Promise<Response> } }
 export function clearStartupPrefetch() { if (typeof window !== 'undefined') window.__usfirstStartup = undefined; }
 export class ApiError extends Error { constructor(message: string, public status: number, public code?: string) { super(message); } }
@@ -22,7 +24,7 @@ export async function api<T>(path: string, body?: unknown, signal?: AbortSignal)
   if (abort.signal.aborted) onCancelled();
   try {
     const work = async () => {
-      const prefetched = path === '/bootstrap' && typeof window !== 'undefined' ? window.__usfirstStartup : undefined;
+      const prefetched = path === '/bootstrap?sync=2' && typeof window !== 'undefined' ? window.__usfirstStartup : undefined;
       if (prefetched) clearStartupPrefetch();
       const response = await (prefetched ? prefetched.catch(error => {
         if (error instanceof Error && error.name === 'AbortError') throw new ApiError('连接超时，请重试。', 0, 'connection_timeout');
@@ -47,9 +49,9 @@ export async function api<T>(path: string, body?: unknown, signal?: AbortSignal)
     abort.signal.removeEventListener('abort', onCancelled);
   }
 }
-export const getBootstrap = (revision = '') => api<BootstrapState>('/bootstrap' + (revision ? '?revision=' + encodeURIComponent(revision) : ''));
+export const getBootstrap = (revision = '') => api<BootstrapState>('/bootstrap?sync=2' + (revision ? '&revision=' + encodeURIComponent(revision) : ''));
 export const getSession = () => api<SessionState>('/session');
 export const getRequests = () => api<{ requests: IRequest[] }>('/requests');
-export const createRequest = (input: IRequestInput, id: string) => api('/requests', { ...input, id });
-export const updateRequest = (id: string, status: Status, note = '') => api(`/requests/${id}/status`, { status, note });
+export const createRequest = (input: IRequestInput, id: string) => api<RequestConfirmation>('/requests', { ...input, id });
+export const updateRequest = (id: string, status: Status, note = '') => api<RequestConfirmation>(`/requests/${id}/status`, { status, note });
 export const recognizePhotos: ImageRecognizer = (photos, signal) => api('/recognize', { photos }, signal);

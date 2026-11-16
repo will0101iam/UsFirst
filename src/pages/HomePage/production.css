@@ -57,4 +57,6 @@
     .oa-page .nav-dock { padding-left:18px; padding-right:18px; padding-bottom:calc(15px + max(34px,env(safe-area-inset-bottom))); }
   }
 }
+.load-more { display:block; margin:24px auto 0; min-height:44px; padding:10px 20px; }
+.load-more:disabled { opacity:.5; }
 @media(max-width:600px) { .auth-panel { margin-top:56px; } .pair-panel { margin-top:38px; } .account-form { gap:20px; } }

@@ -1,3 +1,4 @@
+import { readSync, historyPage } from './sync';
 import { shellPolicy } from './shell-policy';
 import { notifyUser, pushKeys, subscriptionSchema, validatePushKey } from './push';
 import { z } from 'zod';
@@ -18,7 +19,7 @@ interface Env {
 }
 interface User { id: string; username: string; display_name: string }
 interface Pair { id: string; partner_id: string; partner_name: string }
-interface StartupUser extends User { pair_id: string | null; partner_id: string | null; partner_name: string | null }
+interface StartupUser extends User { pair_id: string | null; partner_id: string | null; partner_name: string | null; sync_version?: number }
 interface RequestRow {
   id: string; pair_id: string; applicant_id: string; title: string; amount_cents: number;
   category: '网购' | '外卖' | '其他'; reason: string;
@@ -107,6 +108,11 @@ function requestData(row: RequestRow, user: User, photos: { id: string; name: st
     ...(row.decision_note ? { decisionNote: row.decision_note } : {}), photos: photos.map(photo => ({ name: photo.name, dataUrl: `/api/photos/${photo.id}` })) };
 }
 
+async function authoritativeRequest(user: User, pairId: string, id: string, env: Env) {
+  const row = await env.DB.prepare(`SELECT r.*, (SELECT json_group_array(json_object('id',p.id,'name',p.name)) FROM photos p WHERE p.request_id=r.id ORDER BY p.id) AS photo_metadata FROM requests r WHERE r.id=? AND r.pair_id=?`).bind(id,pairId).first<RequestRow & { photo_metadata: string }>();
+  if (!row) throw new HttpError(404, '申请不存在或无权查看');
+  return requestData(row,user,JSON.parse(row.photo_metadata || '[]'));
+}
 async function readRequests(user: User, pairId: string, env: Env) {
   // One indexed read; aggregate photo metadata only for the 300 selected rows, never photo data.
   const rows = await env.DB.prepare(`SELECT r.*, (SELECT json_group_array(json_object('id',p.id,'name',p.name)) FROM photos p WHERE p.request_id=r.id ORDER BY p.id) AS photo_metadata FROM requests r WHERE r.pair_id=? ORDER BY r.created_at DESC LIMIT 300`).bind(pairId).all<RequestRow & { photo_metadata: string }>();
@@ -115,8 +121,28 @@ async function readRequests(user: User, pairId: string, env: Env) {
 async function bootstrap(request: Request, env: Env) {
   const started = performance.now();
   const token = request.headers.get('Cookie')?.split(';').map(v => v.trim()).find(v => v.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
-  const user = token && /^[a-f0-9]{64}$/.test(token) ? await env.DB.prepare(`SELECT u.id,u.username,u.display_name,m.pair_id,other.user_id AS partner_id,partner.display_name AS partner_name FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN members m ON m.user_id=u.id LEFT JOIN members other ON other.pair_id=m.pair_id AND other.user_id<>u.id LEFT JOIN users partner ON partner.id=other.user_id WHERE s.token_hash=? AND s.expires_at>?`).bind(await digest(token), Date.now()).first<StartupUser>() : null;
+  const user = token && /^[a-f0-9]{64}$/.test(token) ? await env.DB.prepare(`SELECT u.id,u.username,u.display_name,m.pair_id,other.user_id AS partner_id,partner.display_name AS partner_name,pr.sync_version FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN members m ON m.user_id=u.id LEFT JOIN pairs pr ON pr.id=m.pair_id LEFT JOIN members other ON other.pair_id=m.pair_id AND other.user_id<>u.id LEFT JOIN users partner ON partner.id=other.user_id WHERE s.token_hash=? AND s.expires_at>?`).bind(await digest(token), Date.now()).first<StartupUser>() : null;
   const session = { user: user ? { username: user.username, displayName: user.display_name } : null, pair: user?.partner_id ? { partnerName: user.partner_name } : null, recognitionAvailable: !!user && !!env.OPENROUTER_API_KEY };
+  if (new URL(request.url).searchParams.get('sync') === '2') {
+    const identity = 's2.' + await digest(JSON.stringify({ userId: user?.id || null, pairId: user?.pair_id || null, session })) + '.';
+    if (!user?.pair_id || !user.partner_id) return json({ session, requests: [], removed: [], revision: identity + '0', mode: 'reset' });
+    const supplied = new URL(request.url).searchParams.get('revision') || '';
+    const rawVersion = supplied.startsWith(identity) ? supplied.slice(identity.length) : '';
+    const since = /^\d{1,15}$/.test(rawVersion) && Number(rawVersion) <= (user.sync_version || 0) ? Number(rawVersion) : null;
+    if (since !== null && since === user.sync_version) {
+      const response = json({ session, requests: null, removed: [], revision: identity + since, mode: 'unchanged' });
+      response.headers.set('Server-Timing', `app;dur=${(performance.now() - started).toFixed(1)}`); return response;
+    }
+    let bundle = await readSync(env.DB, user.pair_id, since, user.id);
+    let rows = JSON.parse(bundle.rows || '[]') as (RequestRow & { photo_metadata: string })[];
+    let mode = since === null ? 'reset' : 'delta';
+    let removed = JSON.parse(bundle.removed || '[]') as string[];
+    if (rows.length > 300 || removed.length > 300) {
+      bundle = await readSync(env.DB, user.pair_id, null, user.id); rows = JSON.parse(bundle.rows || '[]'); removed = []; mode = 'reset';
+    }
+    const response = json({ session, requests: rows.map(row => requestData(row, user, JSON.parse(row.photo_metadata || '[]'))), removed: mode === 'reset' ? [] : removed, revision: identity + bundle.version, mode });
+    response.headers.set('Server-Timing', `app;dur=${(performance.now() - started).toFixed(1)}`); return response;
+  }
   const requests = user?.pair_id && user.partner_id ? await readRequests(user, user.pair_id, env) : [];
   const revision = await digest(JSON.stringify({ session, requests }));
   const unchanged = new URL(request.url).searchParams.get('revision') === revision;
@@ -218,6 +244,12 @@ async function api(request: Request, env: Env, context?: Background): Promise<Re
   }
   const pair = await pairFor(user, env);
   if (!pair) throw new HttpError(409, '先用邀请码连接对方');
+  if (path === '/api/requests/page' && method === 'GET') {
+    let page;
+    try { page = await historyPage(env.DB, pair.id, user.id, new URL(request.url).searchParams); }
+    catch (error) { if (error instanceof Error && /Invalid (page|cursor)/.test(error.message)) throw new HttpError(400, '分页参数无效'); throw error; }
+    return json({ requests: page.rows.map(row => requestData(row as unknown as RequestRow,user,JSON.parse(row.photo_metadata || '[]'))), cursor: page.cursor });
+  }
   if (path === '/api/requests' && method === 'GET') {
     return json({ requests: await readRequests(user, pair.id, env) });
   }
@@ -227,7 +259,7 @@ async function api(request: Request, env: Env, context?: Background): Promise<Re
     const existing = await env.DB.prepare('SELECT applicant_id,payload_hash FROM requests WHERE id=?').bind(input.id).first<{ applicant_id: string; payload_hash: string }>();
     if (existing) {
       if (existing.applicant_id !== user.id || existing.payload_hash !== payloadHash) throw new HttpError(409, '申请编号已使用，请重新提交');
-      return json({ ok: true, id: input.id });
+      return json({ ok: true, id: input.id, request: await authoritativeRequest(user,pair.id,input.id,env) });
     }
     const statements = [env.DB.prepare('INSERT OR IGNORE INTO requests(id,pair_id,applicant_id,title,amount_cents,category,reason,created_at,payload_hash) VALUES(?,?,?,?,?,?,?,?,?)').bind(input.id, pair.id, user.id, input.title, input.amountCents, input.category, input.reason, Date.now(), payloadHash)];
     input.photos.forEach((photo, index) => statements.push(env.DB.prepare('INSERT OR IGNORE INTO photos(id,request_id,name,data) SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM requests WHERE id=? AND applicant_id=? AND payload_hash=?)').bind(`${input.id}-${index}`, input.id, photo.name, photo.dataUrl, input.id, user.id, payloadHash)));
@@ -235,7 +267,7 @@ async function api(request: Request, env: Env, context?: Background): Promise<Re
     const saved = await env.DB.prepare('SELECT applicant_id,payload_hash FROM requests WHERE id=?').bind(input.id).first<{ applicant_id: string; payload_hash: string }>();
     if (!saved || saved.applicant_id !== user.id || saved.payload_hash !== payloadHash) throw new HttpError(409, '提交冲突，请重试');
     if (committed[0].meta.changes) queuePush(pair.partner_id, input.id, 'request');
-    return json({ ok: true, id: input.id }, 201);
+    return json({ ok: true, id: input.id, request: await authoritativeRequest(user,pair.id,input.id,env) }, 201);
   }
   const detailMatch = path.match(/^\/api\/requests\/([a-f0-9-]{36})$/);
   if (detailMatch && method === 'GET') {
@@ -252,7 +284,7 @@ async function api(request: Request, env: Env, context?: Background): Promise<Re
     const update = await env.DB.prepare(`UPDATE requests SET status=?, decided_at=CASE WHEN ?='purchased' THEN decided_at ELSE ? END, decision_note=CASE WHEN ?='purchased' THEN decision_note ELSE ? END, purchased_at=CASE WHEN ?='purchased' THEN ? ELSE purchased_at END WHERE id=? AND pair_id=? AND status=? AND applicant_id${deciding ? '<>' : '='}?`).bind(input.status, input.status, now, input.status, input.note, input.status, now, actionMatch[1], pair.id, from, user.id).run();
     if (!update.meta.changes) throw new HttpError(409, '申请状态已变化，或你无权执行这个操作');
     if (deciding) queuePush(pair.partner_id, actionMatch[1], input.status as 'approved' | 'rejected');
-    return json({ ok: true });
+    return json({ ok: true, request: await authoritativeRequest(user,pair.id,actionMatch[1],env) });
   }
   const photoMatch = path.match(/^\/api\/photos\/([a-f0-9-]{36}-[0-2])$/);
   if (photoMatch && method === 'GET') {

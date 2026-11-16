@@ -11,11 +11,11 @@ const events = []; const listeners = new Map();
 globalThis.window = { setTimeout: (fn, ms) => { timers.set(++timerId, { fn, ms }); return timerId; }, setInterval: () => 1, addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener(){}, dispatchEvent: event => events.push(event.type) };
 globalThis.document = { hidden: false, addEventListener(){}, removeEventListener(){} };
 globalThis.__toasts = [];
-let calls = 0; let resolveRefresh;
+let calls = 0; let resolveRefresh; let resolveWrite; let delayWrite = false;
 const initial = { session: { user: { username: 'test-a', displayName: '甲' }, pair: { partnerName: '乙' }, recognitionAvailable: false }, requests: [], revision: 'initial' };
 globalThis.__homeAPI = {
   getBootstrap: async () => { calls++; if (calls === 1) return initial; return new Promise(resolve => { resolveRefresh = resolve; }); },
-  createRequest: async () => {}, updateRequest: async () => {}, clearStartupPrefetch(){}, api: async () => {}, recognizePhotos: undefined,
+  createRequest: async (input,id) => { const result={ok:true,request:{...input,id,applicant:'me',status:'pending',createdAt:new Date().toISOString()}}; if(delayWrite)return new Promise(resolve=>resolveWrite=()=>resolve(result));return result; }, updateRequest: async (id,status,note) => ({ok:true,request:{id,title:'对方申请',applicant:'partner',status,amountCents:1900,category:'其他',reason:'',photos:[],createdAt:new Date().toISOString(),decidedAt:new Date().toISOString(),decisionNote:note}}), clearStartupPrefetch(){}, api: async () => {}, recognizePhotos: undefined,
 };
 const built = await build({ entryPoints: ['src/pages/HomePage/HomePage.tsx'], bundle: true, write: false, format: 'esm', platform: 'node', jsx: 'automatic', target: 'es2023', plugins: [{ name: 'home-boundaries', setup(b) {
   b.onResolve({ filter: /^(react|react\/jsx-runtime|lucide-react)$/ }, args => ({ path: pathToFileURL(require.resolve(args.path)).href, external: true }));
@@ -44,19 +44,38 @@ try {
   let done = false;
   await act(async () => { const form = tree.root.findByType('test-RequestForm'); form.props.onCreate({ title: '确认后的申请', amountCents: 2900, category: '网购', reason: '', photos: [] }).then(() => { done = true; }); });
   assert.equal(done, true, 'confirmed create must not wait for next refresh');
-  assert.ok(globalThis.__toasts.includes('申请已提交')); assert.equal(calls, 3);
+  assert.ok(globalThis.__toasts.includes('申请已提交')); assert.equal(calls, 2,'确认提交没有额外首页拉取');
   assert.equal(tree.root.findByType('test-RequestCard').props.request.title, '确认后的申请');
-  await act(async () => resolveRefresh({ ...initial, revision: 'updated', requests: [{ id: 'saved', title: '服务器申请', applicant: 'me', status: 'pending', amountCents: 2900, category: '网购', reason: '', photos: [], createdAt: new Date().toISOString() }] }));
-  assert.equal(tree.root.findByType('test-RequestCard').props.request.title, '服务器申请');
-  // Trigger a slow background read, then confirm a newer write before that old read returns.
-  await act(async () => { const refresh = tree.root.findAllByType('test-RequestForm')[0].props.onCreate; await refresh({ title: '第二笔确认申请', amountCents: 3900, category: '网购', reason: '', photos: [] }); });
+  await act(async () => listeners.get('focus')());
   const oldRead = resolveRefresh;
-  await act(async () => { const refresh = tree.root.findAllByType('test-RequestForm')[0].props.onCreate; await refresh({ title: '最新确认申请', amountCents: 4900, category: '网购', reason: '', photos: [] }); });
-  await act(async () => oldRead(initial));
-  assert.ok(tree.root.findAllByType('test-RequestCard').some(card => card.props.request.title === '最新确认申请'), '旧后台响应不得覆盖确认后的最新状态');
-  const queued = [...timers.values()].filter(value => value.ms === 0).at(-1);
-  await act(async () => queued.fn());
+  await act(async () => oldRead({ ...initial, mode:'delta',revision:'delta',requests:[{id:'delta-one',title:'服务器变化',applicant:'me',status:'pending',amountCents:100,category:'其他',reason:'',photos:[],createdAt:new Date().toISOString()}],removed:[] }));
+  assert.ok(tree.root.findAllByType('test-RequestCard').some(card => card.props.request.title==='确认后的申请'),'增量不得清除未变记录');
+  delayWrite=true;
+  await act(async () => { void tree.root.findByType('test-RequestForm').props.onCreate({title:'最新确认申请',amountCents:4900,category:'网购',reason:'',photos:[]}); });
+  await act(async () => listeners.get('focus')());
+  const pendingOld = resolveRefresh;
+  await act(async () => resolveWrite()); delayWrite=false;
+  const callsAfterWrite=calls;
+  await act(async () => pendingOld(initial));
+  assert.equal(calls,callsAfterWrite,'确认写不自动重发或拉首页');
+  assert.ok(tree.root.findAllByType('test-RequestCard').some(card => card.props.request.title==='最新确认申请'),'旧响应不能覆盖确认写');
+  await act(async()=>listeners.get('focus')());
+  await act(async()=>resolveRefresh({...initial,mode:'unchanged',requests:null,revision:'verified-new'}));
+  const pagePaths=[];let finishPage;let failPage;
+  globalThis.__homeAPI.api=path=>{pagePaths.push(path);return new Promise((resolve,reject)=>{finishPage=resolve;failPage=reject})};
+  await act(async()=>tree.root.findAllByType('button').find(b=>b.props.className==='history-toggle load-more').props.onClick());
+  assert.equal(pagePaths.length,1);assert.ok(pagePaths[0].includes('view=mine&filter=pending'));
+  await act(async()=>finishPage({requests:[{id:'history-first',title:'较早申请',applicant:'me',status:'pending',amountCents:200,category:'其他',reason:'',photos:[],createdAt:'2020-01-01T00:00:00.000Z'}],cursor:'1:00000000-0000-4000-8000-000000000000'}));
+  await act(async()=>tree.root.findAllByType('button').find(b=>b.props.className==='history-toggle load-more').props.onClick());
+  assert.ok(pagePaths[1].includes('&cursor='));await act(async()=>failPage(new Error('page unavailable')));
+  assert.ok(tree.root.findAllByType('test-RequestCard').some(card=>card.props.request.id==='history-first'),'分页失败不清现有记录');
+  await act(async()=>tree.root.findAllByType('button').find(b=>b.props.className==='history-toggle load-more').props.onClick());
+  assert.equal(pagePaths[2],pagePaths[1],'分页失败重试保持原游标');
+  await act(async()=>finishPage({requests:[],cursor:null}));
+  assert.equal(tree.root.findAllByType('button').filter(b=>b.props.className==='history-toggle load-more').length,0,'结束后不再显示加载入口');
+  await act(async () => listeners.get('focus')());
   const beforeLogout = resolveRefresh;
+  globalThis.__homeAPI.api=async()=>({ok:true});
   await act(async () => tree.root.findAllByType('button').find(b => b.props.className === 'identity-button').props.onClick());
   await act(async () => tree.root.findByType('test-SettingsSheet').props.onLogout());
   assert.equal(tree.root.findAllByType('test-RequestCard').length, 0);
@@ -80,5 +99,5 @@ try {
   await act(async()=>confirmBootstrap(initial));assert.equal(detailCalls,1);
   await act(async()=>confirmDetail({request:{id:linkId,title:'通知打开的申请',applicant:'partner',status:'pending',amountCents:2900,category:'网购',reason:'',photos:[],createdAt:new Date().toISOString()}}));
   assert.equal(tree.root.findByType('test-RequestDetail').props.request.id,linkId);assert.equal(window.location.hash,'');
-  console.log(JSON.stringify({ ok: true, checks: 17, scope: 'real HomePage; controlled API result ordering, notification after verification, logout/account isolation, confirmed approval', networkCalls: 0 }));
+  console.log(JSON.stringify({ ok: true, checks: 23, scope: 'real HomePage; controlled API ordering, incremental merge, history paging/retry, notification after verification, logout/account isolation, confirmed approval', networkCalls: 0 }));
 } finally { if (tree) await act(async () => tree.unmount()); }

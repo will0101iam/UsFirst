@@ -40,7 +40,8 @@ export function readHomeSnapshot(): HomeSnapshot | null {
 export function saveHomeSnapshot(session: SessionState, requests: IRequest[], generation: string): void {
   if (generation !== snapshotGeneration()) return;
   if (!session.user || !session.pair) { clearHomeSnapshot(); return; }
-  if (requests.length > 300 || !requests.every(validRequest)) return;
+  requests = requests.slice(0,300);
+  if (!requests.every(validRequest)) return;
   const value: HomeSnapshot = { version: 1, account: session.user.username, savedAt: Date.now(), session: { user: { username: session.user.username, displayName: session.user.displayName }, pair: { partnerName: session.pair.partnerName }, recognitionAvailable: false }, requests: requests.map(withoutPhotos) };
   try { const raw = JSON.stringify(value); if (raw.length <= 300000) store()?.setItem(snapshotKey, raw); } catch { /* Quota/storage failure never changes server-confirmed results. */ }
 }

@@ -70,7 +70,7 @@
   // Begin the authenticated read while the main bundle downloads; consume it once in React.
   var startupAbort = new AbortController();
   var startupTimer = setTimeout(function () { startupAbort.abort(); }, 25000);
-  window.__usfirstStartup = fetch('/api/bootstrap', { credentials: 'same-origin', cache: 'no-store', signal: startupAbort.signal })
+  window.__usfirstStartup = fetch('/api/bootstrap?sync=2', { credentials: 'same-origin', cache: 'no-store', signal: startupAbort.signal })
     .then(function (response) { return response.arrayBuffer().then(function (body) { var headers = new Headers(response.headers); headers.delete('content-encoding'); headers.delete('content-length'); return new Response(body, { status: response.status, headers: headers }); }); })
     .finally(function () { clearTimeout(startupTimer); });
   window.__usfirstStartup.catch(function () {});
