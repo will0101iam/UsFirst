@@ -7,6 +7,7 @@ function run(raw,options={}) {
  const elements={'boot-shell':element('section'),'boot-status':element('p'),'boot-retry':element('button'),'boot-records':element('div'),'root':{firstElementChild:options.emptyRoot?null:{},textContent:options.emptyRoot?'':'一起花正在连接',getBoundingClientRect:()=>({height:options.emptyRoot?0:780})}};
  const events=new Map(),timers=new Map();let id=0;const store=new Map(raw?[['usfirst:snapshot:v1',raw]]:[]);
  const context={URL,AbortController,Response,Headers,Promise,Date,JSON,Number,RegExp,Event,console,TextEncoder,setTimeout:(fn,ms)=>{timers.set(++id,{fn,ms});return id},clearTimeout:i=>timers.delete(i),location:{pathname:options.recoverPath||'/',search:'',hash:'',protocol:'https:',hostname:'usfirst.example',reload(){}},history:{replaceState(_a,_b,url){context.location.pathname=url}},document:{hidden:false,getElementById:id=>elements[id]||null,createElement:element,addEventListener(n,f){events.set(n,f)}},navigator:{onLine:true},window:{dispatchEvent(){},localStorage:{getItem:k=>store.get(k)||null,removeItem:k=>store.delete(k)},addEventListener(n,f){events.set(n,f)}},fetch:()=>new Promise(()=>{})};
+ if(options.hidden){context.document.hidden=true;context.requestAnimationFrame=()=>{};}
  if(options.storageFailure)Object.defineProperty(context.window,'localStorage',{get(){throw new Error('storage denied')}});
  vm.runInNewContext(code,context);
  return {elements,events,timers,context};
@@ -22,4 +23,5 @@ const mounting=run('');mounting.events.get('usfirst:mounted')();assert.equal(mou
 mounting.events.get('usfirst:fatal')();assert.equal(mounting.elements['boot-shell'].hidden,false,'React failure restores independent shell');assert.equal(mounting.elements['boot-retry'].hidden,false);
 const invisible=run('',{emptyRoot:true});invisible.events.get('usfirst:mounted')();assert.equal(invisible.elements['boot-shell'].hidden,false,'mounted event must not hide recovery until visible app exists');
 for(const recoverPath of ['/recover','/recover.html']){const recovered=run('',{recoverPath});assert.equal(recovered.context.location.pathname,'/','Cloudflare canonical recovery route must normalize before React mounts');}
-console.log(JSON.stringify({ok:true,checks:9,scope:'boot script without React/network; validated snapshot immediate paint and independent fatal recovery'}));
+const hidden=run('',{hidden:true});hidden.events.get('usfirst:mounted')();assert.equal(hidden.elements['boot-shell'].hidden,true,'paused animation frame must not leave boot overlay over rendered app');
+console.log(JSON.stringify({ok:true,checks:10,scope:'boot script without React/network; validated snapshot immediate paint and independent fatal recovery'}));

@@ -51,7 +51,7 @@
     if (document.documentElement) document.documentElement.classList.add('usfirst-app-ready');
   }
   window.addEventListener('usfirst:mounted', function () {
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(acceptVisibleApp); else acceptVisibleApp();
+    if (!document.hidden && typeof requestAnimationFrame === 'function') requestAnimationFrame(acceptVisibleApp); else acceptVisibleApp();
   });
   window.addEventListener('usfirst:fatal', function () {
     mounted = false; paintLastHome();
