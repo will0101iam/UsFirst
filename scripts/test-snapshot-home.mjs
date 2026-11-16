@@ -35,15 +35,13 @@ let tree;
 try {
   await act(async () => { tree = TestRenderer.create(React.createElement(Home)); });
   assert.equal(tree.root.findByType('test-FocusRequest').props.request.title, '上次的申请', '未等网络就显示已有快照');
-  assert.equal(tree.root.findByType('test-FocusRequest').props.readOnly, true);
-  assert.equal(tree.root.findAllByType('button').find(b => b.props.className === 'new-request').props.disabled, true);
-  await act(async () => tree.root.findByType('test-FocusRequest').props.onApprove());
-  assert.equal(writes, 0, '直接调用回调也不能越过只读守卫');
+  assert.equal(tree.root.findByType('test-FocusRequest').props.readOnly, false, '有本地快照就能直接操作，不再等首次鉴权');
+  assert.equal(tree.root.findAllByType('button').find(b => b.props.className === 'new-request').props.disabled, false);
   const initialTimer = [...timers.values()].find(value => value.ms === 0);
   await act(async () => initialTimer.fn());
   assert.equal(calls, 1);
   await act(async () => rejectRefresh(new Error('network slow')));
-  assert.equal(tree.root.findByType('test-FocusRequest').props.readOnly, true);
+  assert.equal(tree.root.findByType('test-FocusRequest').props.readOnly, false, '网络慢也不退回只读');
   assert.equal(tree.root.findByType('test-FocusRequest').props.request.title, '上次的申请');
   await act(async () => tree.root.findAllByType('button').find(b => b.props.className === 'snapshot-status').props.onClick());
   await act(async () => resolveRefresh(initial));

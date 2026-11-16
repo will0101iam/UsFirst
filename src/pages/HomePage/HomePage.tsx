@@ -40,8 +40,11 @@ function SheetPending() {
 export default function HomePage() {
   const [startup] = useState(readHomeSnapshot);
   const [session, setSession] = useState<SessionState | null>(startup?.session || null); const [loading, setLoading] = useState(!startup && !snapshotGeneration().startsWith('logout:')); const [connectionError, setConnectionError] = useState('');
-  const [verified, setVerified] = useState(false); const verifiedRef = useRef(false); const verifiedGeneration = useRef(''); const [savedAt, setSavedAt] = useState(startup?.savedAt || 0); const requestState = useRef<IRequest[]>(startup?.requests || []);
-  const [requests, setRequests] = useState<IRequest[]>(startup?.requests || []); const [view, setView] = useState<View>('inbox'); const [filter, setFilter] = useState<Filter>('pending');
+  const [verified, setVerified] = useState(false); const verifiedRef = useRef(false); const verifiedGeneration = useRef(startup ? snapshotGeneration() : '');
+  // A snapshot for this account was validated when it was written (24h TTL, account keyed).
+  // Acting on it beats staring at disabled buttons: the server still rejects stale decisions
+  // with 409 and the row is restored, so a snapshot write can never invent a state.
+  const snapshotTrusted = useRef(!!startup); const [savedAt, setSavedAt] = useState(startup?.savedAt || 0); const requestState = useRef<IRequest[]>(startup?.requests || []);  const [requests, setRequests] = useState<IRequest[]>(startup?.requests || []); const [view, setView] = useState<View>('inbox'); const [filter, setFilter] = useState<Filter>('pending');
   const [formOpen, setFormOpen] = useState(false); const [settingsOpen, setSettingsOpen] = useState(false); const [selectedId, setSelectedId] = useState<string | null>(null);
   const [rejectId, setRejectId] = useState<string | null>(null); const [photo, setPhoto] = useState<{ photos: IRequest['photos']; index: number } | null>(null);
   const [busy] = useState(false); const refreshRunning = useRef(false); const sessionEpoch = useRef(0); const draftId = useRef(crypto.randomUUID());
@@ -74,16 +77,17 @@ export default function HomePage() {
         requestState.current = rows; setRequests(rows);
         if (next.mode === 'reset' || !next.mode) setHistoryPages({});
       }
-      if (!next.session.user || !next.session.pair) { requestState.current = []; setRequests([]); setHistoryPages({}); clearHomeSnapshot('invalid'); setSavedAt(0); }
+      if (!next.session.user || !next.session.pair) { snapshotTrusted.current = false; requestState.current = []; setRequests([]); setHistoryPages({}); clearHomeSnapshot('invalid'); setSavedAt(0); }
       else { saveHomeSnapshot(next.session, requestState.current, generation); setSavedAt(Date.now()); }
       verifiedGeneration.current = snapshotGeneration();
       onlineRef.current = true;
+      snapshotTrusted.current = true;
       verifiedRef.current = !document.hidden && (typeof navigator === 'undefined' || navigator.onLine !== false); setVerified(verifiedRef.current);
       setConnectionError('');
     } catch (error) {
       if (epoch !== sessionEpoch.current || generation !== snapshotGeneration()) return;
       verifiedRef.current = false; setVerified(false);
-      if (error instanceof ApiError && error.status === 401) { setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); requestState.current = []; revision.current = ''; clearHomeSnapshot('invalid'); releasePhotos(); setSavedAt(0); }
+      if (error instanceof ApiError && error.status === 401) { snapshotTrusted.current = false; setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); requestState.current = []; revision.current = ''; clearHomeSnapshot('invalid'); releasePhotos(); setSavedAt(0); }
       else setConnectionError(error instanceof Error ? error.message : '连接失败，请重试');
     } finally {
       setLoading(false); refreshRunning.current = false; lastRefresh.current = Date.now();
@@ -135,8 +139,8 @@ export default function HomePage() {
     }).catch(error => { if (active && epoch === sessionEpoch.current && generation === snapshotGeneration()) { toast.error(error instanceof Error ? error.message : '申请暂时无法打开'); setDeepLink(''); } }).finally(() => { if (deepLinkRunning.current === id) deepLinkRunning.current = ''; });
     return () => { active = false; deepLinkRunning.current = ''; };
   }, [deepLink, verified, notificationAccount, notificationPaired, publishRequests]);
-  const writable = () => verifiedRef.current && verifiedGeneration.current === snapshotGeneration() && !document.hidden && onlineRef.current;
-  const readOnly = !verified;
+  const writable = () => (verifiedRef.current || snapshotTrusted.current) && verifiedGeneration.current === snapshotGeneration() && !document.hidden && onlineRef.current;
+  const readOnly = !verified && !snapshotTrusted.current;
   function setRows(next: IRequest[]) { requestState.current = next; setRequests(next); }
   function replaceRow(id: string, row: IRequest) { setRows(requestState.current.map(item => item.id === id ? row : item)); }
   function patchRow(id: string, patch: RequestPatch & { pendingSync?: 'sending' | 'failed' }) { setRows(requestState.current.map(item => item.id === id ? { ...item, ...patch } : item)); }
@@ -207,12 +211,12 @@ export default function HomePage() {
     });
   }
   async function logout() {
-    suppressRefresh.current = true; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot('logout'); releasePhotos(); verifiedRef.current = false; setVerified(false); setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); requestState.current = []; setHistoryPages({}); setSavedAt(0); setSettingsOpen(false); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); setLoading(false); draftId.current = crypto.randomUUID();
+    suppressRefresh.current = true; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot('logout'); releasePhotos(); verifiedRef.current = false; snapshotTrusted.current = false; setVerified(false); setSession({ user: null, pair: null, recognitionAvailable: false }); setRequests([]); requestState.current = []; setHistoryPages({}); setSavedAt(0); setSettingsOpen(false); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); setLoading(false); draftId.current = crypto.randomUUID();
     const cleanup = import('@/lib/push-notifications').then(module => module.stopDevicePush()).catch(() => { toast.error('本设备通知关闭未确认，可在系统设置中关闭一起花通知。'); });
     try { await api('/auth/logout', {}); } catch { toast.error('本机快照已清除，但服务器退出未确认，请联网后再退出。'); }
     await cleanup;
   }
-  function authenticated(next: SessionState) { suppressRefresh.current = false; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot(); releasePhotos(); verifiedRef.current = false; setVerified(false); draftId.current = crypto.randomUUID(); requestState.current = []; setHistoryPages({}); setRequests([]); setSavedAt(0); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); setSession(next); void refresh(); }
+  function authenticated(next: SessionState) { suppressRefresh.current = false; sessionEpoch.current++; revision.current = ''; clearStartupPrefetch(); clearHomeSnapshot(); releasePhotos(); verifiedRef.current = false; snapshotTrusted.current = false; setVerified(false); draftId.current = crypto.randomUUID(); requestState.current = []; setHistoryPages({}); setRequests([]); setSavedAt(0); setSelectedId(null); setRejectId(null); setPhoto(null); setFormOpen(false); setSession(next); void refresh(); }
   const pageKey = view + ':' + filter;
   const page = historyPages[pageKey];
   async function loadHistory() {
@@ -241,7 +245,7 @@ export default function HomePage() {
   const focused = view === 'inbox' && filter === 'pending' ? waiting[0] : undefined;
   return <main className="oa-page"><Toaster position="top-center" toastOptions={{ className: 'oa-toast' }}/><div className="home-scroll"><header className="topbar"><div className="brand"><span className="brand-name">一起花<span className="brand-stop">.</span></span></div>{session?.user && <button className="identity-button" onClick={() => setSettingsOpen(true)}><span>{session.user.displayName}</span><ChevronDown size={14}/></button>}</header>
     {loading ? <div className="loading-state"><LoaderCircle size={25} className="animate-spin"/><p>正在连接…</p></div> : connectionError && !session ? <div className="empty-state"><h2>暂时无法连接</h2><p role="alert">{connectionError}</p><button className="empty-create" onClick={() => void refresh()}><RefreshCw size={17}/>重试</button></div> : !session?.user ? <AuthPanel onSession={authenticated}/> : !session.pair ? <PairPanel onSession={authenticated}/> : <>
-    {!verified && session?.pair && <button className="snapshot-status" onClick={() => void refresh()} role="status">{connectionError ? `${connectionError} · 重试` : savedAt ? '上次同步的记录 · 正在更新，仅可查看' : '正在确认最新数据，仅可查看'}</button>}
+    {!verified && session?.pair && <button className="snapshot-status" onClick={() => void refresh()} role="status">{connectionError ? `${connectionError} · 重试` : savedAt ? '上次同步的记录 · 正在同步最新' : '正在确认最新数据'}</button>}
     {verified && connectionError && <button className="connection-error" onClick={() => void refresh()}>{connectionError} · 重试</button>}
     <section className="workspace"><header className="workspace-heading"><div><h1>{view === 'inbox' ? '待我决定' : '我的申请'}</h1>{waiting.length > 0 && view === 'inbox' && filter === 'pending' && <p>待审批</p>}</div>{view === 'inbox' && <button className={`history-toggle ${filter === 'all' ? 'selected' : ''}`} aria-pressed={filter === 'all'} onClick={() => setFilter(filter === 'all' ? 'pending' : 'all')}>{filter === 'all' ? '返回待办' : '历史'}</button>}</header>
     {view === 'mine' && <div className="status-filters">{filters.map(item => <button key={item.id} className={filter === item.id ? 'active' : ''} aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}</div>}

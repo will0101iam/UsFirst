@@ -95,7 +95,9 @@ try {
   await act(async()=>[...timers.values()].filter(t=>t.ms===0).at(-1).fn());
   assert.equal(calls,beforeHiddenStart+1,'后台首次初始化仍可完成，不能永远停在加载');
   await act(async()=>resolveRefresh(initial));
-  assert.equal(tree.root.findAllByType('button').find(b=>b.props.className==='new-request').props.disabled,true,'后台初始化不授权写');
+  const formsBefore=tree.root.findAllByType('test-RequestForm').length;
+  await act(async()=>tree.root.findAllByType('button').find(b=>b.props.className==='new-request').props.onClick());
+  assert.equal(tree.root.findAllByType('test-RequestForm').length,formsBefore,'后台状态不授权打开或提交申请');
   await act(async()=>tree.unmount());tree=null;document.hidden=false;
   const linkId='fa48d670-abcd-4ec2-82e9-b1a0b6f49d78';let confirmBootstrap;let confirmDetail;let detailCalls=0;
   window.location={hash:'#request='+linkId,pathname:'/',search:''};window.history={replaceState(){window.location.hash=''}};
