@@ -38,7 +38,7 @@ try {
   const requestButton = tree.root.findAllByType('button').find(b => b.props.className === 'new-request');
   await act(async () => requestButton.props.onClick());
   await act(async () => listeners.get('focus')());
-  assert.equal(tree.root.findByType('test-RequestForm').props.readOnly,true,'相册返回引起的同步不卸载本次表单');
+  assert.equal(tree.root.findByType('test-RequestForm').props.readOnly,false,'相册返回引起的后台同步不再锁死本次表单');
   await act(async () => resolveRefresh(initial));
   assert.equal(tree.root.findByType('test-RequestForm').props.readOnly,false);
   let done = false;

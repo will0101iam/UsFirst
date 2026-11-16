@@ -9,6 +9,8 @@ export interface IRequestInput {
 export interface IRequest extends IRequestInput {
   id: string; applicant: Person; status: Status; createdAt: string;
   decidedAt?: string; decisionNote?: string; purchasedAt?: string; sample?: boolean;
+  /** Client-only: this row was applied locally and is still being delivered to the server. */
+  pendingSync?: 'sending' | 'failed';
 }
 export const people: Record<Person, string> = { me: '我', partner: '女朋友' };
 export const otherPerson = (person: Person): Person => person === 'me' ? 'partner' : 'me';

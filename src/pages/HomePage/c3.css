@@ -23,6 +23,8 @@
 .focus-request-photo { display:flex; align-items:center; gap:10px; text-align:left; margin-top:18px; }
 .focus-request-photo>img { width:55px; height:55px; object-fit:cover; border-radius:9px; }
 .focus-request-photo>span { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--info); }
+.focus-request-photo>span.photo-skeleton { display:block; width:55px; height:55px; border-radius:9px; overflow:hidden; background:var(--muted); flex-shrink:0; }
+.focus-request-photo>span.photo-skeleton img { width:100%; height:100%; object-fit:cover; display:block; }
 .focus-request-actions { display:grid; grid-template-columns:1fr 1.5fr; gap:12px; margin-top:22px; }
 .focus-secondary,.press-button { min-height:54px; border-radius:18px; display:flex; justify-content:center; align-items:center; gap:8px; font-size:15px; font-weight:500; }
 .focus-secondary { background:var(--secondary); border:1px solid var(--border); color:var(--foreground); }

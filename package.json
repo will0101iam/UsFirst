@@ -29,7 +29,8 @@
     "test:critical-startup": "node scripts/test-critical-startup.mjs",
     "bench:transport": "python3 scripts/benchmark-transport.py",
     "test:snapshot-store": "node scripts/test-snapshot-store.mjs",
-    "test:snapshot-home": "node scripts/test-snapshot-home.mjs"
+    "test:snapshot-home": "node scripts/test-snapshot-home.mjs",
+    "test:zero-wait": "node scripts/test-zero-wait.mjs"
   },
   "dependencies": {
     "@block65/webcrypto-web-push": "2.0.0",
