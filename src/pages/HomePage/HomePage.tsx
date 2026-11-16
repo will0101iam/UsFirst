@@ -33,8 +33,10 @@ export default function HomePage() {
   const [historyPages, setHistoryPages] = useState<Record<string, { cursor: string | null }>>({});
   const historyRunning = useRef(false); const [historyBusy, setHistoryBusy] = useState(false); const [historyError, setHistoryError] = useState('');
   const publishRequests = useCallback((next: IRequest[]) => { requestState.current = next; setRequests(next); }, []);
+  const initialReadStarted = useRef(false);
   const refresh = useCallback(async function refreshNow(silent = false) {
-    if (suppressRefresh.current || document.hidden) return;
+    if (suppressRefresh.current || (document.hidden && initialReadStarted.current)) return;
+    initialReadStarted.current = true;
     if (historyRunning.current) { refreshPending.current = true; return; }
     if (refreshRunning.current) { if (!silent) refreshPending.current = true; return; }
     if (silent && Date.now() - lastRefresh.current < 4000) return;
